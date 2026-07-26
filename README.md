@@ -173,10 +173,21 @@ a "Confirmada" en la agenda.
   (cerrando la sesión de todos) — para evitarlo, fija `JWT_SECRET` como
   variable de entorno igual que `DATABASE_URL`.
 - **Contraseñas con bcrypt** (`bcryptjs`, sin dependencias nativas).
-- **Buscador de diagnóstico (CIE-10)** y **vademécum de medicamentos**:
-  catálogos de ejemplo (100+ diagnósticos comunes, ~20 medicamentos), no
-  oficiales ni exhaustivos. Antes de un uso clínico a gran escala,
-  conviene sustituirlos por catálogos completos y vigentes.
+- **Buscador de diagnóstico (CIE-10)**: catálogo completo en español
+  (11,000+ códigos), cargado localmente desde
+  `backend/data/cie10-es.json` — no depende de ninguna API externa en
+  cada búsqueda. Fuente: agregado público de la clasificación CIE-10 de
+  la OMS con datos administrativos del Ministerio de Salud de Chile
+  (https://github.com/verasativa/CIE-10). Es un catálogo de referencia
+  general; para uso clínico regulado a gran escala en un país específico,
+  conviene contrastarlo contra el catálogo oficial vigente de la
+  autoridad sanitaria local (en Ecuador, el MSP). La búsqueda ignora
+  tildes y acepta varias palabras en cualquier orden si el proveedor de
+  Postgres permite la extensión `unaccent` (Neon sí la permite); si no,
+  sigue funcionando pero exige tildes exactas.
+- **Vademécum de medicamentos**: catálogo de ejemplo (~20 medicamentos),
+  no oficial ni exhaustivo. Antes de un uso clínico a gran escala,
+  conviene sustituirlo por un catálogo completo y vigente.
 - **QR de validación de recetas**: apunta a `/api/verify/:token`, público
   — funciona correctamente una vez desplegado en un dominio estable (ver
   sección de despliegue).
@@ -228,8 +239,9 @@ cambia.
 
 ## Siguientes pasos sugeridos
 
-1. Conectar el buscador de diagnóstico a un catálogo CIE-10 oficial y
-   completo, y el vademécum a un catálogo de medicamentos vigente.
+1. Contrastar el catálogo CIE-10 contra el oficial vigente de la
+   autoridad sanitaria local (si se requiere para cumplimiento
+   normativo), y el vademécum contra un catálogo de medicamentos vigente.
 2. Mover el envío de recordatorios a un worker/cron independiente del
    proceso web (para que no dependa de que el servicio esté "despierto").
 3. Firma digital real del médico en la receta y el certificado.
