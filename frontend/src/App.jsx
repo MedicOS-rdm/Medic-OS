@@ -125,7 +125,7 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">Rx</span>
+          <img src="/assets/logo.png" alt="MedicOs" className="brand-mark" />
           <div>
             <div className="brand-name"><span className="brand-medic">Medic</span><span className="brand-os">Os</span></div>
             <div className="brand-sub">{user.clinic_name || "Expediente & Agenda"}</div>

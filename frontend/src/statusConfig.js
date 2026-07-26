@@ -1,9 +1,9 @@
 export const STATUS = {
-  programada: { label: "Programada", color: "#8C8577" },
-  confirmada: { label: "Confirmada", color: "#3D6B5C" },
+  programada: { label: "Programada", color: "#7C8AA0" },
+  confirmada: { label: "Confirmada", color: "#1E8F6D" },
   en_sala_espera: { label: "En sala de espera", color: "#C08A3E" },
-  en_consulta: { label: "En consulta", color: "#2B5C8A" },
-  finalizada: { label: "Finalizada", color: "#5B6B5F" },
+  en_consulta: { label: "En consulta", color: "#5B4B9B" },
+  finalizada: { label: "Finalizada", color: "#5C6B7A" },
   cancelada: { label: "Cancelada", color: "#9B3B3B" },
   no_asistio: { label: "No asistió", color: "#6B4A3D" },
 };
