@@ -1,7 +1,11 @@
 import pg from "pg";
 import crypto from "node:crypto";
+import path from "node:path";
+import fs from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 const { Pool } = pg;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ---------- Conexión a PostgreSQL (Neon, u otro proveedor compatible) ----------
 // DATABASE_URL es obligatoria: la app ya no usa un archivo local (SQLite),
@@ -105,6 +109,14 @@ export const db = {
 // `fecha.replace(' ', 'T')` siga funcionando sin cambios.
 const NOW_TEXT = `to_char(now(), 'YYYY-MM-DD HH24:MI:SS')`;
 
+// Se activa (si el proveedor de Postgres lo permite) dentro de initDb().
+// Cuando está en true, las búsquedas de texto (ej. catálogo CIE-10) pueden
+// usar unaccent(...) para que "infeccion" encuentre "Infección" sin tilde.
+// Si el proveedor no permite crear extensiones, queda en false y las
+// búsquedas simplemente no ignoran tildes (no se rompen, solo son menos
+// permisivas).
+export const dbCapabilities = { unaccent: false };
+
 async function ensureColumn(table, column, definition) {
   // Postgres soporta "ADD COLUMN IF NOT EXISTS" nativamente — más simple
   // y seguro que inspeccionar el esquema a mano.
@@ -112,6 +124,17 @@ async function ensureColumn(table, column, definition) {
 }
 
 export async function initDb() {
+  // Intento de activar búsqueda insensible a tildes (ej. "infeccion"
+  // encuentra "Infección"). Si el proveedor de Postgres no lo permite
+  // (algunos hosts restringen la creación de extensiones), seguimos sin
+  // ella — la app funciona igual, solo la búsqueda es un poco más estricta.
+  try {
+    await pool.query(`CREATE EXTENSION IF NOT EXISTS unaccent`);
+    dbCapabilities.unaccent = true;
+  } catch (err) {
+    console.warn("[db] No se pudo activar la extensión 'unaccent' (búsqueda sin tildes deshabilitada):", err.message);
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS clinics (
       id SERIAL PRIMARY KEY,
@@ -313,114 +336,33 @@ export async function initDb() {
   await ensureColumn("prescriptions", "updated_at", "TEXT");
   await ensureColumn("certificates", "updated_at", "TEXT");
 
-  // ---------- Catálogo CIE-10 (siembra idempotente, se puede ampliar en
-  // despliegues futuros sin duplicar ni perder nada) ----------
-  const cie10Seed = [
-    ["A09", "Diarrea y gastroenteritis de presunto origen infeccioso"],
-    ["A09.1", "Diarrea y gastroenteritis de origen infeccioso"],
-    ["A15", "Tuberculosis respiratoria"],
-    ["A90", "Dengue"],
-    ["B01", "Varicela"],
-    ["B02", "Herpes zóster"],
-    ["B34.9", "Infección viral, no especificada"],
-    ["B86", "Escabiosis"],
-    ["D12", "Pólipo del colon"],
-    ["D50", "Anemia por deficiencia de hierro"],
-    ["E03.9", "Hipotiroidismo, no especificado"],
-    ["E05.9", "Hipertiroidismo, no especificado"],
-    ["E10", "Diabetes mellitus tipo 1"],
-    ["E11", "Diabetes mellitus tipo 2"],
-    ["E66.9", "Obesidad, no especificada"],
-    ["E78.5", "Hiperlipidemia, no especificada"],
-    ["F32.9", "Episodio depresivo, no especificado"],
-    ["F41.1", "Trastorno de ansiedad generalizada"],
-    ["F41.9", "Trastorno de ansiedad, no especificado"],
-    ["F43.1", "Trastorno de estrés postraumático"],
-    ["F51.0", "Insomnio no orgánico"],
-    ["G43.9", "Migraña, no especificada"],
-    ["G44.2", "Cefalea tensional"],
-    ["G47.0", "Trastornos del inicio y mantenimiento del sueño"],
-    ["H10.9", "Conjuntivitis, no especificada"],
-    ["H60.9", "Otitis externa, no especificada"],
-    ["H66.9", "Otitis media, no especificada"],
-    ["H81.0", "Enfermedad de Ménière"],
-    ["I10", "Hipertensión esencial (primaria)"],
-    ["I20.9", "Angina de pecho, no especificada"],
-    ["I25.9", "Enfermedad isquémica crónica del corazón"],
-    ["I48", "Fibrilación y aleteo auricular"],
-    ["I50.9", "Insuficiencia cardíaca, no especificada"],
-    ["I83.9", "Várices de miembros inferiores"],
-    ["J00", "Rinofaringitis aguda (resfriado común)"],
-    ["J01.9", "Sinusitis aguda, no especificada"],
-    ["J02.9", "Faringitis aguda, no especificada"],
-    ["J03.9", "Amigdalitis aguda, no especificada"],
-    ["J06.9", "Infección aguda de las vías respiratorias superiores"],
-    ["J11.1", "Influenza con otras manifestaciones respiratorias"],
-    ["J18.9", "Neumonía, no especificada"],
-    ["J20.9", "Bronquitis aguda, no especificada"],
-    ["J30.4", "Rinitis alérgica, no especificada"],
-    ["J35.0", "Amigdalitis crónica"],
-    ["J40", "Bronquitis, no especificada como aguda o crónica"],
-    ["J44.9", "Enfermedad pulmonar obstructiva crónica, no especificada"],
-    ["J45.9", "Asma, no especificada"],
-    ["K02.9", "Caries dental, no especificada"],
-    ["K21.0", "Enfermedad por reflujo gastroesofágico con esofagitis"],
-    ["K21.9", "Enfermedad por reflujo gastroesofágico sin esofagitis"],
-    ["K29.7", "Gastritis, no especificada"],
-    ["K30", "Dispepsia funcional"],
-    ["K35.8", "Apendicitis aguda, otra y no especificada"],
-    ["K52.9", "Gastroenteritis y colitis no infecciosa"],
-    ["K59.0", "Estreñimiento"],
-    ["K59.1", "Diarrea funcional"],
-    ["K64.9", "Hemorroides, no especificadas"],
-    ["L02.9", "Absceso cutáneo, no especificado"],
-    ["L03.9", "Celulitis, no especificada"],
-    ["L20.9", "Dermatitis atópica, no especificada"],
-    ["L23.9", "Dermatitis alérgica de contacto"],
-    ["L30.9", "Dermatitis, no especificada"],
-    ["L50.9", "Urticaria, no especificada"],
-    ["L70.0", "Acné vulgar"],
-    ["M25.5", "Dolor articular"],
-    ["M54.2", "Cervicalgia"],
-    ["M54.5", "Lumbago no especificado"],
-    ["M54.9", "Dorsalgia, no especificada"],
-    ["M17.9", "Gonartrosis (artrosis de rodilla), no especificada"],
-    ["M19.9", "Artrosis, no especificada"],
-    ["M79.1", "Mialgia"],
-    ["M79.7", "Fibromialgia"],
-    ["N30.9", "Cistitis, no especificada"],
-    ["N39.0", "Infección de vías urinarias, sitio no especificado"],
-    ["N20.0", "Cálculo del riñón"],
-    ["N76.0", "Vaginitis aguda"],
-    ["N40", "Hiperplasia de la próstata"],
-    ["O21.0", "Hiperémesis gravídica leve"],
-    ["O26.9", "Atención por afección relacionada con el embarazo"],
-    ["Z34.9", "Supervisión de embarazo normal"],
-    ["R05", "Tos"],
-    ["R06.0", "Disnea"],
-    ["R10.4", "Dolor abdominal, otro y no especificado"],
-    ["R11", "Náusea y vómito"],
-    ["R42", "Mareo y desvanecimiento"],
-    ["R50.9", "Fiebre, no especificada"],
-    ["R51", "Cefalea"],
-    ["R53", "Malestar y fatiga"],
-    ["S00.9", "Traumatismo superficial de la cabeza"],
-    ["S06.0", "Conmoción cerebral"],
-    ["S13.4", "Esguince cervical"],
-    ["S60.9", "Traumatismo superficial de la muñeca y de la mano"],
-    ["S93.4", "Esguince de tobillo"],
-    ["T14.9", "Traumatismo, no especificado"],
-    ["Z00.0", "Examen médico general"],
-    ["Z01.0", "Examen de ojos y de la visión"],
-    ["Z23", "Necesidad de inmunización, dosis única"],
-    ["Z71.1", "Consulta por preocupación de enfermedad no confirmada"],
-    ["Z76.3", "Acompañante de persona enferma"],
-  ];
-  for (const [code, label] of cie10Seed) {
-    await pool.query(`INSERT INTO cie11_catalog (code, label) VALUES ($1, $2) ON CONFLICT (code) DO NOTHING`, [
-      code,
-      label,
-    ]);
+  // ---------- Catálogo CIE-10 en español (más de 11,000 códigos) ----------
+  // Se carga desde backend/data/cie10-es.json — un archivo de datos local,
+  // no una llamada a ninguna API externa en cada arranque. Fuente: catálogo
+  // público derivado de la clasificación CIE-10 de la OMS con datos
+  // administrativos del Ministerio de Salud de Chile (deis.cl), agregado en
+  // https://github.com/verasativa/CIE-10. Es un catálogo de referencia
+  // general — para uso clínico regulado a gran escala en un país
+  // específico, conviene contrastarlo contra el catálogo oficial vigente
+  // de la autoridad sanitaria local (en Ecuador, el MSP).
+  //
+  // Solo se siembra si el catálogo está prácticamente vacío (evita
+  // recorrer 11,000 filas en cada reinicio del servidor una vez que ya se
+  // cargó la primera vez).
+  const cie10Count = await pool.query(`SELECT COUNT(*)::int AS n FROM cie11_catalog`);
+  if (cie10Count.rows[0].n < 1000) {
+    const dataPath = path.join(__dirname, "..", "data", "cie10-es.json");
+    const cie10Data = JSON.parse(await fs.readFile(dataPath, "utf-8"));
+    const codes = cie10Data.map((d) => d.code);
+    const labels = cie10Data.map((d) => d.label);
+    // Inserción masiva en una sola consulta (unnest de dos arreglos
+    // paralelos) — mucho más rápido que 11,000 INSERT uno por uno.
+    await pool.query(
+      `INSERT INTO cie11_catalog (code, label)
+       SELECT * FROM UNNEST($1::text[], $2::text[])
+       ON CONFLICT (code) DO NOTHING`,
+      [codes, labels]
+    );
   }
 
   const medsSeed = [
