@@ -160,7 +160,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
         {/* ---------- Columna izquierda: ficha + historial ---------- */}
         <aside className="record-history">
           <div className="folder-card">
-            <div className="modal-tab" style={{ background: "#3D6B5C" }} />
+            <div className="modal-tab" style={{ background: "#0460D3" }} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
               <h2 className="patient-title">
                 {patient.first_name} {patient.last_name}

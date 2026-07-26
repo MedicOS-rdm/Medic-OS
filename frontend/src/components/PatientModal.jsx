@@ -65,7 +65,7 @@ export default function PatientModal({ isMedico = true, patient = null, onClose,
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal folder-card" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-tab" style={{ background: "#3D6B5C" }} />
+        <div className="modal-tab" style={{ background: "#0460D3" }} />
         <h2 className="modal-title">{isEdit ? "Editar paciente" : "Nuevo paciente"}</h2>
         <form onSubmit={handleSubmit} className="form-grid">
           <label>
