@@ -26,9 +26,9 @@ export default function LoginScreen({ onAuthenticated }) {
   return (
     <div className="auth-shell">
       <div className="folder-card auth-card">
-        <div className="modal-tab" style={{ background: "#3D6B5C" }} />
+        <div className="modal-tab" style={{ background: "#0460D3" }} />
         <div className="brand" style={{ marginBottom: 18 }}>
-          <span className="brand-mark">Rx</span>
+          <img src="/assets/logo.png" alt="MedicOs" className="brand-mark" />
           <div>
             <div className="brand-name"><span className="brand-medic">Medic</span><span className="brand-os">Os</span></div>
             <div className="brand-sub">Expediente &amp; Agenda</div>
