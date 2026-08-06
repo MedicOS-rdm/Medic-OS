@@ -1,11 +1,12 @@
 :root {
-  --bg: #eef0e8;
-  --surface: #fffdf9;
-  --ink: #1f2a24;
-  --ink-soft: #55625a;
-  --accent: #3d6b5c;
-  --accent-soft: #dce6de;
-  --line: #d8d9cd;
+  --bg: #eef2f8;
+  --surface: #ffffff;
+  --ink: #142642;
+  --ink-soft: #55647c;
+  --accent: #0460d3;
+  --accent-dark: #033477;
+  --accent-soft: #e1eafb;
+  --line: #d6e0ee;
   --allergy: #b23a3a;
   --radius: 10px;
   --font-display: "Fraunces", serif;
@@ -57,16 +58,12 @@ textarea {
 }
 
 .brand-mark {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.3rem;
-  color: var(--accent);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
   background: var(--accent-soft);
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
+  border: 1px solid var(--line);
 }
 
 .brand-name {
@@ -854,6 +851,44 @@ textarea {
 .footer-logo {
   font-size: 0.85rem;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footer-logo-img {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.logo-uploader {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.logo-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+.logo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .footer-copy {

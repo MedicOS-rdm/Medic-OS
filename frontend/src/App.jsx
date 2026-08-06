@@ -67,6 +67,16 @@ export default function App() {
   const [showDoctorProfile, setShowDoctorProfile] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
+  const [clinicLogo, setClinicLogo] = useState(null);
+
+  const loadClinicLogo = useCallback(async () => {
+    try {
+      const profile = await api.doctorProfile.get();
+      setClinicLogo(profile.logo_base64 || null);
+    } catch {
+      setClinicLogo(null);
+    }
+  }, []);
 
   const loadPatients = useCallback(async () => {
     setPatients(await api.patients.list());
@@ -85,6 +95,11 @@ export default function App() {
     if (!user) return;
     loadPatients();
   }, [user, loadPatients]);
+
+  useEffect(() => {
+    if (!user) return;
+    loadClinicLogo();
+  }, [user, loadClinicLogo]);
 
   useEffect(() => {
     if (!user) return;
@@ -125,7 +140,7 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">Rx</span>
+          <img src={clinicLogo || "/assets/logo.png"} alt="MedicOs" className="brand-mark" />
           <div>
             <div className="brand-name"><span className="brand-medic">Medic</span><span className="brand-os">Os</span></div>
             <div className="brand-sub">{user.clinic_name || "Expediente & Agenda"}</div>
@@ -259,7 +274,13 @@ export default function App() {
       )}
 
       {showDoctorProfile && isMedico && (
-        <DoctorProfileModal onClose={() => setShowDoctorProfile(false)} onSaved={() => setShowDoctorProfile(false)} />
+        <DoctorProfileModal
+          onClose={() => setShowDoctorProfile(false)}
+          onSaved={() => {
+            setShowDoctorProfile(false);
+            loadClinicLogo();
+          }}
+        />
       )}
 
       {showUsers && isMedico && <UsersModal onClose={() => setShowUsers(false)} />}

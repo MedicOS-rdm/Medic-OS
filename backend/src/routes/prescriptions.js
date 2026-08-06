@@ -28,6 +28,21 @@ function calcAge(birthDate) {
   return age;
 }
 
+// Convierte un "data URI" (ej. "data:image/png;base64,....") guardado en
+// doctor_profile.logo_base64 a un Buffer que pdfkit pueda dibujar. Si no
+// hay logo o el formato no es válido, regresa null en vez de tronar —
+// así un logo mal guardado nunca rompe la generación del PDF.
+function parseLogoBuffer(dataUri) {
+  if (!dataUri || typeof dataUri !== "string") return null;
+  const match = dataUri.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/);
+  if (!match) return null;
+  try {
+    return Buffer.from(match[2], "base64");
+  } catch {
+    return null;
+  }
+}
+
 prescriptionsRouter.post("/", async (req, res) => {
   const { patient_id, consultation_id, items, instructions } = req.body;
 
@@ -114,16 +129,30 @@ prescriptionsRouter.get("/:id/pdf", async (req, res) => {
   const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 200 });
   const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
 
+  // El logo se toma del perfil ACTUAL del médico (no queda "congelado" en
+  // la receta al emitirla) — así, si el consultorio cambia de logo más
+  // adelante, los documentos reimpresos reflejan el logo vigente, en vez
+  // de duplicar la imagen completa en cada receta guardada.
+  const doctorNow = await getDoctorProfile(req.user.clinic_id);
+  const logoBuffer = parseLogoBuffer(doctorNow.logo_base64);
+
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="receta-${rx.id}.pdf"`);
 
   const doc = new PDFDocument({ size: "A5", margin: 40 });
   doc.pipe(res);
 
-  doc.font("Helvetica-Bold").fontSize(16).text(rx.clinic_name || "Consultorio médico");
+  const textStartX = logoBuffer ? doc.x + 46 : doc.x;
+  const headerTop = doc.y;
+  if (logoBuffer) {
+    doc.image(logoBuffer, doc.x, headerTop, { width: 38, height: 38 });
+  }
+  doc.font("Helvetica-Bold").fontSize(16).text(rx.clinic_name || "Consultorio médico", textStartX, headerTop);
   doc.font("Helvetica").fontSize(10).fillColor("#555");
-  if (rx.clinic_address) doc.text(rx.clinic_address);
-  if (rx.clinic_phone) doc.text(`Tel: ${rx.clinic_phone}`);
+  if (rx.clinic_address) doc.text(rx.clinic_address, textStartX);
+  if (rx.clinic_phone) doc.text(`Tel: ${rx.clinic_phone}`, textStartX);
+  doc.x = doc.page.margins.left; // volvemos al margen izquierdo normal para el resto del documento
+  if (logoBuffer) doc.y = Math.max(doc.y, headerTop + 42); // nunca empezar antes de que termine el logo
   doc.moveDown(0.5);
   doc.fillColor("#000").font("Helvetica-Bold").fontSize(11).text(rx.doctor_name || "");
   doc.font("Helvetica").fontSize(9).fillColor("#555");

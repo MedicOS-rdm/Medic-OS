@@ -77,6 +77,8 @@ export const api = {
   doctorProfile: {
     get: () => request(`/doctor-profile`),
     update: (data) => request(`/doctor-profile`, { method: "PUT", body: JSON.stringify(data) }),
+    uploadLogo: (dataUri) => request(`/doctor-profile/logo`, { method: "PUT", body: JSON.stringify({ data_uri: dataUri }) }),
+    removeLogo: () => request(`/doctor-profile/logo`, { method: "DELETE" }),
   },
   prescriptions: {
     listByPatient: (patientId) => request(`/prescriptions/patient/${patientId}`),

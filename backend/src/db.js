@@ -328,6 +328,10 @@ export async function initDb() {
   await ensureColumn("doctor_profile", "personal_id", "TEXT");
   await ensureColumn("doctor_profile", "email", "TEXT");
   await ensureColumn("doctor_profile", "city", "TEXT");
+  // Logo del consultorio, guardado como "data URI" (ej. "data:image/png;base64,...").
+  // No usamos un servicio de archivos aparte (S3, etc.) para mantener el
+  // MVP simple; por eso se limita el tamaño al subirlo (ver routes/doctorProfile.js).
+  await ensureColumn("doctor_profile", "logo_base64", "TEXT");
   await ensureColumn("patients", "id_number", "TEXT");
   await ensureColumn("patients", "address", "TEXT");
   await ensureColumn("patients", "workplace", "TEXT");
