@@ -26,7 +26,10 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors());
-app.use(express.json());
+// Límite elevado (por defecto Express solo permite 100 KB) para poder
+// subir el logo del consultorio como base64 dentro del JSON — el propio
+// endpoint de logo valida además que el archivo original no pase de 2 MB.
+app.use(express.json({ limit: "3mb" }));
 app.use(express.urlencoded({ extended: false })); // Twilio manda application/x-www-form-urlencoded
 
 // Log simple de acceso (usuario si ya se autenticó, IP y ruta) — la
