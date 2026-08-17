@@ -162,6 +162,12 @@ textarea {
   max-width: 780px;
 }
 
+/* La ficha del paciente necesita mucho más ancho que las demás vistas
+   (dos columnas: historial + nota SOAP), así que no la limitamos a 780px. */
+.main--record {
+  max-width: 1500px;
+}
+
 .agenda-header {
   display: flex;
   justify-content: space-between;
@@ -453,7 +459,7 @@ textarea {
 /* ---------- Expediente clínico ---------- */
 
 .record-shell {
-  max-width: 1000px;
+  max-width: 1500px;
 }
 
 .back-btn {
@@ -537,8 +543,6 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-height: 65vh;
-  overflow-y: auto;
 }
 
 .visit-day {

@@ -218,7 +218,7 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main">
+      <main className={`main${record && isMedico ? " main--record" : ""}`}>
         {record && isMedico ? (
           <PatientRecord
             patientId={record.patientId}
