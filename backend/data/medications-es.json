@@ -1,0 +1,1517 @@
+[
+[
+"Paracetamol",
+"Tempra, Tylenol, Dolex",
+"Tabletas 500 mg"
+],
+[
+"Paracetamol",
+"Tempra, Tylenol, Dolex",
+"Jarabe 120 mg/5 ml"
+],
+[
+"Paracetamol",
+"Tempra, Tylenol, Dolex",
+"Gotas 100 mg/ml"
+],
+[
+"Paracetamol",
+"Tempra, Tylenol, Dolex",
+"Supositorios 300 mg"
+],
+[
+"Ibuprofeno",
+"Advil, Motrin, Ibupirac",
+"Tabletas 400 mg"
+],
+[
+"Ibuprofeno",
+"Advil, Motrin, Ibupirac",
+"Tabletas 600 mg"
+],
+[
+"Ibuprofeno",
+"Advil, Motrin, Ibupirac",
+"Suspensión 100 mg/5 ml"
+],
+[
+"Ibuprofeno",
+"Advil, Motrin, Ibupirac",
+"Gotas pediátricas 100 mg/ml"
+],
+[
+"Naproxeno",
+"Naprosyn, Flanax",
+"Tabletas 250 mg"
+],
+[
+"Naproxeno",
+"Naprosyn, Flanax",
+"Tabletas 500 mg"
+],
+[
+"Diclofenaco",
+"Voltaren, Cataflam",
+"Tabletas 50 mg"
+],
+[
+"Diclofenaco",
+"Voltaren, Cataflam",
+"Tabletas 75 mg (retard)"
+],
+[
+"Diclofenaco",
+"Voltaren, Cataflam",
+"Ampollas 75 mg/3 ml"
+],
+[
+"Diclofenaco",
+"Voltaren, Cataflam",
+"Gel tópico 1%"
+],
+[
+"Ketorolaco",
+"Toradol, Dolten",
+"Tabletas 10 mg"
+],
+[
+"Ketorolaco",
+"Toradol, Dolten",
+"Ampollas 30 mg/ml"
+],
+[
+"Ácido acetilsalicílico",
+"Aspirina, ASA Bayer",
+"Tabletas 100 mg"
+],
+[
+"Ácido acetilsalicílico",
+"Aspirina, ASA Bayer",
+"Tabletas 500 mg"
+],
+[
+"Metamizol (Dipirona)",
+"Neomelubrina, Novalgina",
+"Tabletas 500 mg"
+],
+[
+"Metamizol (Dipirona)",
+"Neomelubrina, Novalgina",
+"Ampollas 1 g/2 ml"
+],
+[
+"Metamizol (Dipirona)",
+"Neomelubrina, Novalgina",
+"Gotas 500 mg/ml"
+],
+[
+"Celecoxib",
+"Celebrex",
+"Cápsulas 200 mg"
+],
+[
+"Meloxicam",
+"Mobic",
+"Tabletas 15 mg"
+],
+[
+"Meloxicam",
+"Mobic",
+"Ampollas 15 mg/1.5 ml"
+],
+[
+"Piroxicam",
+"Feldene",
+"Cápsulas 20 mg"
+],
+[
+"Tramadol",
+"Tramal, Zaldiar",
+"Cápsulas 50 mg"
+],
+[
+"Tramadol",
+"Tramal, Zaldiar",
+"Ampollas 100 mg/2 ml"
+],
+[
+"Tramadol",
+"Tramal, Zaldiar",
+"Gotas 100 mg/ml"
+],
+[
+"Tramadol/Paracetamol",
+"Zaldiar",
+"Tabletas 37.5/325 mg"
+],
+[
+"Amoxicilina",
+"Amoxil",
+"Cápsulas 500 mg"
+],
+[
+"Amoxicilina",
+"Amoxil",
+"Suspensión 250 mg/5 ml"
+],
+[
+"Amoxicilina",
+"Amoxil",
+"Suspensión 125 mg/5 ml"
+],
+[
+"Amoxicilina/Ácido clavulánico",
+"Augmentin, Clavulin",
+"Tabletas 875/125 mg"
+],
+[
+"Amoxicilina/Ácido clavulánico",
+"Augmentin, Clavulin",
+"Suspensión 400/57 mg/5 ml"
+],
+[
+"Ampicilina",
+"Binotal",
+"Cápsulas 500 mg"
+],
+[
+"Ampicilina",
+"Binotal",
+"Ampollas 1 g"
+],
+[
+"Cefalexina",
+"Keflex",
+"Cápsulas 500 mg"
+],
+[
+"Cefalexina",
+"Keflex",
+"Suspensión 250 mg/5 ml"
+],
+[
+"Cefadroxilo",
+"Duricef",
+"Cápsulas 500 mg"
+],
+[
+"Cefadroxilo",
+"Duricef",
+"Suspensión 250 mg/5 ml"
+],
+[
+"Cefuroxima",
+"Zinnat",
+"Tabletas 500 mg"
+],
+[
+"Cefuroxima",
+"Zinnat",
+"Suspensión 250 mg/5 ml"
+],
+[
+"Ceftriaxona",
+"Rocephin",
+"Ampollas 1 g IV/IM"
+],
+[
+"Cefotaxima",
+"Claforan",
+"Ampollas 1 g IV/IM"
+],
+[
+"Ciprofloxacina",
+"Cipro, Ciproxina",
+"Tabletas 500 mg"
+],
+[
+"Ciprofloxacina",
+"Cipro, Ciproxina",
+"Solución oftálmica 0.3%"
+],
+[
+"Ciprofloxacina",
+"Cipro, Ciproxina",
+"Ampollas 200 mg/100 ml"
+],
+[
+"Levofloxacino",
+"Tavanic",
+"Tabletas 500 mg"
+],
+[
+"Levofloxacino",
+"Tavanic",
+"Ampollas 500 mg/100 ml"
+],
+[
+"Moxifloxacino",
+"Avelox",
+"Tabletas 400 mg"
+],
+[
+"Azitromicina",
+"Zithromax",
+"Tabletas 500 mg"
+],
+[
+"Azitromicina",
+"Zithromax",
+"Suspensión 200 mg/5 ml"
+],
+[
+"Claritromicina",
+"Klaricid",
+"Tabletas 500 mg"
+],
+[
+"Claritromicina",
+"Klaricid",
+"Suspensión 250 mg/5 ml"
+],
+[
+"Eritromicina",
+"Ilosone",
+"Tabletas 500 mg"
+],
+[
+"Eritromicina",
+"Ilosone",
+"Suspensión 250 mg/5 ml"
+],
+[
+"Clindamicina",
+"Dalacin",
+"Cápsulas 300 mg"
+],
+[
+"Clindamicina",
+"Dalacin",
+"Ampollas 600 mg/4 ml"
+],
+[
+"Clindamicina",
+"Dalacin",
+"Crema vaginal 2%"
+],
+[
+"Doxiciclina",
+"Vibramicina",
+"Cápsulas 100 mg"
+],
+[
+"Trimetoprim/Sulfametoxazol",
+"Bactrim, Septrin",
+"Tabletas 800/160 mg"
+],
+[
+"Trimetoprim/Sulfametoxazol",
+"Bactrim, Septrin",
+"Suspensión 200/40 mg/5 ml"
+],
+[
+"Metronidazol",
+"Flagyl",
+"Tabletas 500 mg"
+],
+[
+"Metronidazol",
+"Flagyl",
+"Óvulos 500 mg"
+],
+[
+"Metronidazol",
+"Flagyl",
+"Suspensión 125 mg/5 ml"
+],
+[
+"Nitrofurantoína",
+"Macrodantina",
+"Cápsulas 100 mg"
+],
+[
+"Gentamicina",
+"Garamicina",
+"Ampollas 80 mg/2 ml"
+],
+[
+"Gentamicina",
+"Garamicina",
+"Crema 0.1%"
+],
+[
+"Gentamicina",
+"Garamicina",
+"Gotas oftálmicas 0.3%"
+],
+[
+"Vancomicina",
+"Vancocin",
+"Ampollas 500 mg"
+],
+[
+"Penicilina Benzatínica",
+"Benzetacil",
+"Ampollas 1'200,000 UI"
+],
+[
+"Penicilina Benzatínica",
+"Benzetacil",
+"Ampollas 2'400,000 UI"
+],
+[
+"Clavulanato/Amoxicilina pediátrico",
+"Clavulin pediátrico",
+"Suspensión 250/62.5 mg/5 ml"
+],
+[
+"Fluconazol",
+"Diflucan",
+"Cápsulas 150 mg"
+],
+[
+"Itraconazol",
+"Sporanox",
+"Cápsulas 100 mg"
+],
+[
+"Ketoconazol",
+"Nizoral",
+"Tabletas 200 mg"
+],
+[
+"Ketoconazol",
+"Nizoral",
+"Crema 2%"
+],
+[
+"Ketoconazol",
+"Nizoral",
+"Champú 2%"
+],
+[
+"Nistatina",
+"Micostatin",
+"Suspensión oral 100,000 UI/ml"
+],
+[
+"Nistatina",
+"Micostatin",
+"Óvulos 100,000 UI"
+],
+[
+"Clotrimazol",
+"Canesten",
+"Crema vaginal 1%"
+],
+[
+"Clotrimazol",
+"Canesten",
+"Óvulos 500 mg"
+],
+[
+"Clotrimazol",
+"Canesten",
+"Crema tópica 1%"
+],
+[
+"Albendazol",
+"Zentel",
+"Tabletas 400 mg"
+],
+[
+"Albendazol",
+"Zentel",
+"Suspensión 400 mg/20 ml"
+],
+[
+"Mebendazol",
+"Vermox",
+"Tabletas 100 mg"
+],
+[
+"Mebendazol",
+"Vermox",
+"Suspensión 100 mg/5 ml"
+],
+[
+"Ivermectina",
+"Ivexterm",
+"Tabletas 6 mg"
+],
+[
+"Aciclovir",
+"Zovirax",
+"Tabletas 400 mg"
+],
+[
+"Aciclovir",
+"Zovirax",
+"Crema 5%"
+],
+[
+"Oseltamivir",
+"Tamiflu",
+"Cápsulas 75 mg"
+],
+[
+"Omeprazol",
+"Losec",
+"Cápsulas 20 mg"
+],
+[
+"Omeprazol",
+"Losec",
+"Cápsulas 40 mg"
+],
+[
+"Omeprazol",
+"Losec",
+"Ampollas 40 mg"
+],
+[
+"Esomeprazol",
+"Nexium",
+"Tabletas 40 mg"
+],
+[
+"Pantoprazol",
+"Pantozol",
+"Tabletas 40 mg"
+],
+[
+"Pantoprazol",
+"Pantozol",
+"Ampollas 40 mg"
+],
+[
+"Ranitidina",
+"Zantac",
+"Tabletas 150 mg"
+],
+[
+"Hidróxido de aluminio/magnesio",
+"Mylanta, Maalox",
+"Suspensión oral"
+],
+[
+"Metoclopramida",
+"Plasil",
+"Tabletas 10 mg"
+],
+[
+"Metoclopramida",
+"Plasil",
+"Ampollas 10 mg/2 ml"
+],
+[
+"Metoclopramida",
+"Plasil",
+"Gotas 4 mg/ml"
+],
+[
+"Domperidona",
+"Motilium",
+"Tabletas 10 mg"
+],
+[
+"Domperidona",
+"Motilium",
+"Suspensión 1 mg/ml"
+],
+[
+"Ondansetrón",
+"Zofran",
+"Tabletas 8 mg"
+],
+[
+"Ondansetrón",
+"Zofran",
+"Ampollas 4 mg/2 ml"
+],
+[
+"Loperamida",
+"Imodium",
+"Cápsulas 2 mg"
+],
+[
+"Butilhioscina (Butilescopolamina)",
+"Buscapina",
+"Tabletas 10 mg"
+],
+[
+"Butilhioscina (Butilescopolamina)",
+"Buscapina",
+"Ampollas 20 mg/ml"
+],
+[
+"Butilhioscina (Butilescopolamina)",
+"Buscapina",
+"Gotas 10 mg/ml"
+],
+[
+"Butilhioscina/Paracetamol",
+"Buscapina Compositum",
+"Tabletas"
+],
+[
+"Simeticona",
+"Aero-Red, Espumisan",
+"Gotas 40 mg/ml"
+],
+[
+"Simeticona",
+"Aero-Red, Espumisan",
+"Tabletas masticables 80 mg"
+],
+[
+"Lactulosa",
+"Duphalac",
+"Jarabe 3.3 g/5 ml"
+],
+[
+"Bisacodilo",
+"Dulcolax",
+"Tabletas 5 mg"
+],
+[
+"Bisacodilo",
+"Dulcolax",
+"Supositorios 10 mg"
+],
+[
+"Sales de rehidratación oral",
+"Suerox, Pedialyte",
+"Sobres"
+],
+[
+"Sulfato ferroso",
+"Fer-In-Sol",
+"Tabletas 300 mg"
+],
+[
+"Sulfato ferroso",
+"Fer-In-Sol",
+"Gotas 25 mg/ml"
+],
+[
+"Complejo B",
+"Neurobion",
+"Tabletas"
+],
+[
+"Complejo B",
+"Neurobion",
+"Ampollas"
+],
+[
+"Ácido fólico",
+"Folacin",
+"Tabletas 1 mg"
+],
+[
+"Ácido fólico",
+"Folacin",
+"Tabletas 5 mg"
+],
+[
+"Salbutamol",
+"Ventolin",
+"Inhalador 100 mcg"
+],
+[
+"Salbutamol",
+"Ventolin",
+"Solución para nebulizar 5 mg/ml"
+],
+[
+"Salbutamol",
+"Ventolin",
+"Jarabe 2 mg/5 ml"
+],
+[
+"Salmeterol/Fluticasona",
+"Seretide",
+"Inhalador 25/125 mcg"
+],
+[
+"Budesonida",
+"Pulmicort",
+"Solución para nebulizar 0.5 mg/2 ml"
+],
+[
+"Budesonida",
+"Pulmicort",
+"Inhalador 200 mcg"
+],
+[
+"Beclometasona",
+"Beclovent",
+"Inhalador 250 mcg"
+],
+[
+"Beclometasona",
+"Beclovent",
+"Spray nasal"
+],
+[
+"Ipratropio",
+"Atrovent",
+"Solución para nebulizar 0.25 mg/ml"
+],
+[
+"Loratadina",
+"Clarityne",
+"Tabletas 10 mg"
+],
+[
+"Loratadina",
+"Clarityne",
+"Jarabe 5 mg/5 ml"
+],
+[
+"Cetirizina",
+"Zyrtec",
+"Tabletas 10 mg"
+],
+[
+"Cetirizina",
+"Zyrtec",
+"Gotas 10 mg/ml"
+],
+[
+"Desloratadina",
+"Aerius",
+"Tabletas 5 mg"
+],
+[
+"Desloratadina",
+"Aerius",
+"Jarabe 2.5 mg/5 ml"
+],
+[
+"Fexofenadina",
+"Allegra",
+"Tabletas 120 mg"
+],
+[
+"Fexofenadina",
+"Allegra",
+"Tabletas 180 mg"
+],
+[
+"Clorfenamina",
+"Chlor-Trimeton",
+"Tabletas 4 mg"
+],
+[
+"Clorfenamina",
+"Chlor-Trimeton",
+"Jarabe 2 mg/5 ml"
+],
+[
+"Difenhidramina",
+"Benadryl",
+"Jarabe 12.5 mg/5 ml"
+],
+[
+"Difenhidramina",
+"Benadryl",
+"Ampollas 10 mg/ml"
+],
+[
+"Ambroxol",
+"Mucosolvan",
+"Jarabe 15 mg/5 ml"
+],
+[
+"Ambroxol",
+"Mucosolvan",
+"Jarabe pediátrico 30 mg/5 ml"
+],
+[
+"Ambroxol",
+"Mucosolvan",
+"Tabletas 30 mg"
+],
+[
+"Acetilcisteína",
+"Fluimucil",
+"Sobres 200 mg"
+],
+[
+"Acetilcisteína",
+"Fluimucil",
+"Ampollas 300 mg/3 ml"
+],
+[
+"Bromhexina",
+"Bisolvon",
+"Jarabe 4 mg/5 ml"
+],
+[
+"Dextrometorfano",
+"Robitussin DM",
+"Jarabe 15 mg/5 ml"
+],
+[
+"Montelukast",
+"Singulair",
+"Tabletas 10 mg"
+],
+[
+"Montelukast",
+"Singulair",
+"Tabletas masticables 4 mg"
+],
+[
+"Montelukast",
+"Singulair",
+"Tabletas masticables 5 mg"
+],
+[
+"Prednisona",
+"Meticorten",
+"Tabletas 5 mg"
+],
+[
+"Prednisona",
+"Meticorten",
+"Tabletas 50 mg"
+],
+[
+"Prednisolona",
+"Predsim",
+"Jarabe 15 mg/5 ml"
+],
+[
+"Dexametasona",
+"Decadron",
+"Tabletas 0.5 mg"
+],
+[
+"Dexametasona",
+"Decadron",
+"Ampollas 8 mg/2 ml"
+],
+[
+"Betametasona",
+"Celestone",
+"Ampollas 4 mg/ml"
+],
+[
+"Betametasona",
+"Celestone",
+"Crema 0.05%"
+],
+[
+"Hidrocortisona",
+"Solu-Cortef",
+"Ampollas 100 mg"
+],
+[
+"Hidrocortisona",
+"Solu-Cortef",
+"Crema 1%"
+],
+[
+"Epinefrina",
+"Adrenalina",
+"Ampollas 1 mg/ml"
+],
+[
+"Losartán",
+"Cozaar",
+"Tabletas 50 mg"
+],
+[
+"Losartán",
+"Cozaar",
+"Tabletas 100 mg"
+],
+[
+"Losartán/Hidroclorotiazida",
+"Hyzaar",
+"Tabletas 50/12.5 mg"
+],
+[
+"Enalapril",
+"Renitec",
+"Tabletas 10 mg"
+],
+[
+"Enalapril",
+"Renitec",
+"Tabletas 20 mg"
+],
+[
+"Captopril",
+"Capoten",
+"Tabletas 25 mg"
+],
+[
+"Captopril",
+"Capoten",
+"Tabletas 50 mg"
+],
+[
+"Lisinopril",
+"Zestril",
+"Tabletas 10 mg"
+],
+[
+"Lisinopril",
+"Zestril",
+"Tabletas 20 mg"
+],
+[
+"Amlodipino",
+"Norvasc",
+"Tabletas 5 mg"
+],
+[
+"Amlodipino",
+"Norvasc",
+"Tabletas 10 mg"
+],
+[
+"Nifedipino",
+"Adalat",
+"Tabletas 30 mg (retard)"
+],
+[
+"Metoprolol",
+"Betaloc, Lopresor",
+"Tabletas 50 mg"
+],
+[
+"Metoprolol",
+"Betaloc, Lopresor",
+"Tabletas 100 mg"
+],
+[
+"Atenolol",
+"Tenormin",
+"Tabletas 50 mg"
+],
+[
+"Atenolol",
+"Tenormin",
+"Tabletas 100 mg"
+],
+[
+"Carvedilol",
+"Coreg",
+"Tabletas 6.25 mg"
+],
+[
+"Carvedilol",
+"Coreg",
+"Tabletas 25 mg"
+],
+[
+"Hidroclorotiazida",
+"Hidrodiuril",
+"Tabletas 25 mg"
+],
+[
+"Furosemida",
+"Lasix",
+"Tabletas 40 mg"
+],
+[
+"Furosemida",
+"Lasix",
+"Ampollas 20 mg/2 ml"
+],
+[
+"Espironolactona",
+"Aldactone",
+"Tabletas 25 mg"
+],
+[
+"Espironolactona",
+"Aldactone",
+"Tabletas 100 mg"
+],
+[
+"Atorvastatina",
+"Lipitor",
+"Tabletas 10 mg"
+],
+[
+"Atorvastatina",
+"Lipitor",
+"Tabletas 20 mg"
+],
+[
+"Atorvastatina",
+"Lipitor",
+"Tabletas 40 mg"
+],
+[
+"Rosuvastatina",
+"Crestor",
+"Tabletas 10 mg"
+],
+[
+"Rosuvastatina",
+"Crestor",
+"Tabletas 20 mg"
+],
+[
+"Simvastatina",
+"Zocor",
+"Tabletas 20 mg"
+],
+[
+"Simvastatina",
+"Zocor",
+"Tabletas 40 mg"
+],
+[
+"Ácido acetilsalicílico (cardio)",
+"Aspirina Protect",
+"Tabletas 100 mg (cubierta entérica)"
+],
+[
+"Clopidogrel",
+"Plavix",
+"Tabletas 75 mg"
+],
+[
+"Warfarina",
+"Coumadin",
+"Tabletas 5 mg"
+],
+[
+"Rivaroxabán",
+"Xarelto",
+"Tabletas 20 mg"
+],
+[
+"Digoxina",
+"Lanoxin",
+"Tabletas 0.25 mg"
+],
+[
+"Isosorbide",
+"Isordil",
+"Tabletas 10 mg (sublingual)"
+],
+[
+"Nitroglicerina",
+"Nitrostat",
+"Ampollas 5 mg/ml"
+],
+[
+"Nitroglicerina",
+"Nitrostat",
+"Tabletas sublinguales 0.4 mg"
+],
+[
+"Metformina",
+"Glucophage",
+"Tabletas 500 mg"
+],
+[
+"Metformina",
+"Glucophage",
+"Tabletas 850 mg"
+],
+[
+"Metformina",
+"Glucophage",
+"Tabletas 1000 mg"
+],
+[
+"Glibenclamida",
+"Daonil",
+"Tabletas 5 mg"
+],
+[
+"Gliclazida",
+"Diamicron",
+"Tabletas 30 mg (MR)"
+],
+[
+"Sitagliptina",
+"Januvia",
+"Tabletas 100 mg"
+],
+[
+"Sitagliptina/Metformina",
+"Janumet",
+"Tabletas 50/1000 mg"
+],
+[
+"Insulina NPH",
+"Humulin N",
+"Frasco 100 UI/ml"
+],
+[
+"Insulina Glargina",
+"Lantus",
+"Pluma precargada 100 UI/ml"
+],
+[
+"Insulina Regular",
+"Humulin R",
+"Frasco 100 UI/ml"
+],
+[
+"Levotiroxina",
+"Eutirox, Synthroid",
+"Tabletas 50 mcg"
+],
+[
+"Levotiroxina",
+"Eutirox, Synthroid",
+"Tabletas 100 mcg"
+],
+[
+"Metimazol",
+"Tapazol",
+"Tabletas 5 mg"
+],
+[
+"Diazepam",
+"Valium",
+"Tabletas 10 mg"
+],
+[
+"Diazepam",
+"Valium",
+"Ampollas 10 mg/2 ml"
+],
+[
+"Alprazolam",
+"Xanax",
+"Tabletas 0.5 mg"
+],
+[
+"Alprazolam",
+"Xanax",
+"Tabletas 1 mg"
+],
+[
+"Clonazepam",
+"Rivotril",
+"Tabletas 2 mg"
+],
+[
+"Clonazepam",
+"Rivotril",
+"Gotas 2.5 mg/ml"
+],
+[
+"Lorazepam",
+"Ativan",
+"Tabletas 1 mg"
+],
+[
+"Lorazepam",
+"Ativan",
+"Tabletas 2 mg"
+],
+[
+"Sertralina",
+"Zoloft",
+"Tabletas 50 mg"
+],
+[
+"Sertralina",
+"Zoloft",
+"Tabletas 100 mg"
+],
+[
+"Fluoxetina",
+"Prozac",
+"Cápsulas 20 mg"
+],
+[
+"Escitalopram",
+"Lexapro",
+"Tabletas 10 mg"
+],
+[
+"Escitalopram",
+"Lexapro",
+"Tabletas 20 mg"
+],
+[
+"Amitriptilina",
+"Tryptanol",
+"Tabletas 25 mg"
+],
+[
+"Venlafaxina",
+"Effexor",
+"Cápsulas 75 mg (XR)"
+],
+[
+"Quetiapina",
+"Seroquel",
+"Tabletas 25 mg"
+],
+[
+"Quetiapina",
+"Seroquel",
+"Tabletas 100 mg"
+],
+[
+"Risperidona",
+"Risperdal",
+"Tabletas 1 mg"
+],
+[
+"Risperidona",
+"Risperdal",
+"Tabletas 2 mg"
+],
+[
+"Risperidona",
+"Risperdal",
+"Solución 1 mg/ml"
+],
+[
+"Haloperidol",
+"Haldol",
+"Tabletas 5 mg"
+],
+[
+"Haloperidol",
+"Haldol",
+"Ampollas 5 mg/ml"
+],
+[
+"Haloperidol",
+"Haldol",
+"Gotas 2 mg/ml"
+],
+[
+"Ácido valproico",
+"Depakene, Valcote",
+"Tabletas 500 mg"
+],
+[
+"Ácido valproico",
+"Depakene, Valcote",
+"Jarabe 250 mg/5 ml"
+],
+[
+"Carbamazepina",
+"Tegretol",
+"Tabletas 200 mg"
+],
+[
+"Levetiracetam",
+"Keppra",
+"Tabletas 500 mg"
+],
+[
+"Fenitoína",
+"Epamin",
+"Cápsulas 100 mg"
+],
+[
+"Fenitoína",
+"Epamin",
+"Ampollas 250 mg/5 ml"
+],
+[
+"Gabapentina",
+"Neurontin",
+"Cápsulas 300 mg"
+],
+[
+"Gabapentina",
+"Neurontin",
+"Cápsulas 400 mg"
+],
+[
+"Pregabalina",
+"Lyrica",
+"Cápsulas 75 mg"
+],
+[
+"Pregabalina",
+"Lyrica",
+"Cápsulas 150 mg"
+],
+[
+"Biperideno",
+"Akineton",
+"Tabletas 2 mg"
+],
+[
+"Metilfenidato",
+"Ritalin, Concerta",
+"Tabletas 10 mg"
+],
+[
+"Metilfenidato",
+"Ritalin, Concerta",
+"Cápsulas 18 mg (liberación prolongada)"
+],
+[
+"Melatonina",
+"Circadin",
+"Tabletas 3 mg"
+],
+[
+"Zolpidem",
+"Ambien",
+"Tabletas 10 mg"
+],
+[
+"Betahistina",
+"Serc",
+"Tabletas 24 mg"
+],
+[
+"Cinarizina",
+"Stugerón",
+"Tabletas 25 mg"
+],
+[
+"Sumatriptán",
+"Imigran",
+"Tabletas 50 mg"
+],
+[
+"Flunarizina",
+"Sibelium",
+"Tabletas 5 mg"
+],
+[
+"Ácido fusídico",
+"Fucidin",
+"Crema 2%"
+],
+[
+"Mupirocina",
+"Bactroban",
+"Ungüento 2%"
+],
+[
+"Betametasona/Clotrimazol/Gentamicina",
+"Diprogenta",
+"Crema"
+],
+[
+"Calamina",
+"Caladryl",
+"Loción"
+],
+[
+"Peróxido de benzoílo",
+"Panoxyl",
+"Gel 5%"
+],
+[
+"Adapaleno",
+"Differin",
+"Gel 0.1%"
+],
+[
+"Isotretinoína",
+"Roaccutane",
+"Cápsulas 20 mg"
+],
+[
+"Permetrina",
+"Nix, Scabisan",
+"Crema 5%"
+],
+[
+"Permetrina",
+"Nix, Scabisan",
+"Loción 1%"
+],
+[
+"Óxido de zinc",
+"Desitin",
+"Crema/Pasta"
+],
+[
+"Ácido salicílico",
+"Callex",
+"Solución tópica 16.7%"
+],
+[
+"Tobramicina",
+"Tobrex",
+"Gotas oftálmicas 0.3%"
+],
+[
+"Cloranfenicol oftálmico",
+"Quemicetina",
+"Gotas oftálmicas 0.5%"
+],
+[
+"Lágrimas artificiales",
+"Systane, Refresh",
+"Gotas oftálmicas"
+],
+[
+"Ciprofloxacino ótico",
+"Otopram",
+"Gotas óticas 0.3%"
+],
+[
+"Xilometazolina",
+"Otrivin",
+"Spray nasal 0.1%"
+],
+[
+"Oximetazolina",
+"Afrin",
+"Spray nasal 0.05%"
+],
+[
+"Levonorgestrel",
+"Postinor",
+"Tabletas 1.5 mg (anticoncepción de emergencia)"
+],
+[
+"Etinilestradiol/Levonorgestrel",
+"Microgynon",
+"Tabletas (anticonceptivo oral)"
+],
+[
+"Progesterona micronizada",
+"Utrogestan",
+"Cápsulas 200 mg"
+],
+[
+"Ácido fólico + Hierro",
+"Materna",
+"Tabletas prenatales"
+],
+[
+"Clotrimazol vaginal",
+"Canesten óvulos",
+"Óvulos 100 mg"
+],
+[
+"Metronidazol/Nistatina",
+"Flagystatin",
+"Óvulos"
+],
+[
+"Oxitocina",
+"Syntocinon",
+"Ampollas 10 UI/ml"
+],
+[
+"Misoprostol",
+"Cytotec",
+"Tabletas 200 mcg"
+],
+[
+"Vitamina C",
+"Cebión, Redoxón",
+"Tabletas 500 mg"
+],
+[
+"Vitamina C",
+"Cebión, Redoxón",
+"Tabletas efervescentes 1 g"
+],
+[
+"Vitamina D3 (Colecalciferol)",
+"Vigantol, Ondrisa",
+"Gotas 400 UI/ml"
+],
+[
+"Vitamina D3 (Colecalciferol)",
+"Vigantol, Ondrisa",
+"Ampollas 100,000 UI"
+],
+[
+"Calcio + Vitamina D",
+"Caltrate",
+"Tabletas"
+],
+[
+"Multivitamínico pediátrico",
+"Pediasure, Poly-Vi-Sol",
+"Jarabe/Gotas"
+],
+[
+"Zinc",
+"Zinkid",
+"Tabletas 20 mg"
+],
+[
+"Zinc",
+"Zinkid",
+"Jarabe 10 mg/5 ml"
+],
+[
+"Omega 3",
+"Ameu, Nordic Naturals",
+"Cápsulas 1000 mg"
+],
+[
+"Ciclobenzaprina",
+"Flexeril",
+"Tabletas 10 mg"
+],
+[
+"Tiocolchicósido",
+"Muscoril",
+"Cápsulas 4 mg"
+],
+[
+"Tiocolchicósido",
+"Muscoril",
+"Ampollas 4 mg/2 ml"
+],
+[
+"Alopurinol",
+"Zyloprim",
+"Tabletas 300 mg"
+],
+[
+"Colchicina",
+"Colchicine",
+"Tabletas 0.5 mg"
+],
+[
+"Alendronato",
+"Fosamax",
+"Tabletas 70 mg (semanal)"
+],
+[
+"Lidocaína",
+"Xylocaína",
+"Ampollas 2%"
+],
+[
+"Lidocaína",
+"Xylocaína",
+"Spray tópico 10%"
+],
+[
+"Solución salina 0.9%",
+"Suero fisiológico",
+"Bolsa 500 ml"
+],
+[
+"Solución salina 0.9%",
+"Suero fisiológico",
+"Bolsa 1000 ml"
+],
+[
+"Dextrosa 5%",
+"Suero glucosado",
+"Bolsa 500 ml"
+],
+[
+"Ranitidina inyectable",
+"Zantac amp",
+"Ampollas 50 mg/2 ml"
+]
+]

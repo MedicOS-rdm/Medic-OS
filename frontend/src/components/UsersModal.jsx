@@ -64,6 +64,14 @@ export default function UsersModal({ onClose }) {
     load();
   }
 
+  async function handleEditName(u) {
+    const nuevo = prompt("Nombre completo correcto:", u.full_name || "");
+    if (nuevo === null) return; // canceló
+    if (!nuevo.trim()) return;
+    await api.users.update(u.id, { full_name: nuevo.trim() });
+    load();
+  }
+
   async function handleResetPassword(u) {
     if (!confirm(`¿Generar una nueva clave temporal para ${u.full_name}? La clave actual dejará de funcionar.`)) return;
     setResetting(u.id);
@@ -107,6 +115,9 @@ export default function UsersModal({ onClose }) {
                 </div>
                 {u.role === "secretaria" && (
                   <div style={{ display: "flex", gap: 10 }}>
+                    <button type="button" className="link-btn" onClick={() => handleEditName(u)}>
+                      Editar nombre
+                    </button>
                     <button
                       type="button"
                       className="link-btn"

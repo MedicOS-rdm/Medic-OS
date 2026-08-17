@@ -112,7 +112,11 @@ export default function DoctorProfileModal({ onClose, onSaved }) {
         <form onSubmit={handleSubmit} className="form-grid" style={{ marginTop: 18 }}>
           <label className="span-2">
             Nombre completo
-            <input value={form.full_name} onChange={set("full_name")} placeholder="Dra. Ana Torres" autoFocus />
+            <input value={form.full_name} disabled title="Solo el administrador de la plataforma puede corregir este nombre" />
+            <span className="hint" style={{ marginTop: 2 }}>
+              Este nombre lo asigna el administrador de MedicOs al crear tu cuenta. Si tiene un error, pídele que lo corrija —
+              tú no puedes editarlo directamente.
+            </span>
           </label>
           <label>
             C.I. (cédula personal)

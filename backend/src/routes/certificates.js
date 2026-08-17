@@ -3,8 +3,9 @@ import PDFDocument from "pdfkit";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { db, logAudit } from "../db.js";
+import { db, logAudit, newQrToken } from "../db.js";
 import { spellDateSpanish, formatDateSlashes } from "../spanishDates.js";
+import { notifyDocumentIssued } from "../notifications.js";
 
 export const certificatesRouter = Router();
 
@@ -94,6 +95,7 @@ certificatesRouter.post("/", async (req, res) => {
   }
 
   const doctor = await getDoctorProfile(req.user.clinic_id);
+  const share_token = newQrToken();
 
   const result = await db
     .prepare(
@@ -104,8 +106,8 @@ certificatesRouter.post("/", async (req, res) => {
          patient_full_name, patient_address, patient_phone, patient_email,
          patient_institution, patient_job_title, patient_id_number, patient_clinical_history_number,
          doctor_name, doctor_personal_id, doctor_license, doctor_specialty, doctor_email,
-         clinic_name, clinic_address, clinic_phone, issue_place)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         clinic_name, clinic_address, clinic_phone, issue_place, share_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       req.user.clinic_id,
@@ -136,12 +138,27 @@ certificatesRouter.post("/", async (req, res) => {
       doctor.clinic_name,
       doctor.clinic_address,
       doctor.clinic_phone,
-      doctor.city
+      doctor.city,
+      share_token
     );
 
   await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "certificate", entityId: result.lastInsertRowid });
 
   const certificate = await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(result.lastInsertRowid);
+
+  // Envío automático por WhatsApp/correo, si el médico lo activó en
+  // "Notificaciones automáticas". No bloquea la respuesta al usuario: si
+  // el envío falla (credenciales no configuradas, etc.), el certificado
+  // ya quedó creado igual — solo se registra el error en el log.
+  notifyDocumentIssued({
+    clinicId: req.user.clinic_id,
+    kind: "certificate",
+    id: certificate.id,
+    patientPhone: patient.phone,
+    patientEmail: patient.email,
+    patientName: `${patient.first_name} ${patient.last_name}`,
+  }).catch((err) => console.error("Error enviando notificación de certificado:", err));
+
   res.status(201).json(certificate);
 });
 
@@ -190,7 +207,7 @@ certificatesRouter.put("/:id", async (req, res) => {
       `UPDATE certificates SET
         diagnosis_code = ?, diagnosis_label = ?, clinical_picture = ?, presents_symptoms = ?,
         certificate_type = ?, description = ?, days_granted = ?, date_from = ?, date_to = ?,
-        updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
+        updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
        WHERE id = ?`
     )
     .run(
@@ -210,74 +227,114 @@ certificatesRouter.put("/:id", async (req, res) => {
   res.json(await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(req.params.id));
 });
 
-certificatesRouter.get("/:id/pdf", async (req, res) => {
-  const cert = await db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
-  if (!cert) return res.status(404).json({ error: "Certificado no encontrado" });
+// DELETE /api/certificates/:id -> borra un certificado emitido por error
+certificatesRouter.delete("/:id", async (req, res) => {
+  const existing = await db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Certificado no encontrado" });
 
-  // El logo se toma del perfil ACTUAL del médico (no queda "congelado" en
-  // el certificado al emitirlo) — así, si el consultorio cambia de logo
-  // más adelante, los documentos reimpresos reflejan el logo vigente.
-  const doctorNow = await getDoctorProfile(req.user.clinic_id);
+  await db.prepare(`DELETE FROM certificates WHERE id = ?`).run(req.params.id);
+  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "delete", entity: "certificate", entityId: req.params.id });
+  res.json({ ok: true });
+});
+
+// Prepara los datos de un certificado (con el fallback del perfil actual
+// del médico) y devuelve también el logo del consultorio vigente — usado
+// tanto por la ruta autenticada de descarga como por el envío por
+// WhatsApp/correo y la ruta pública de compartir.
+export async function getCertificateReadyForPdf(certId) {
+  const cert = await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(certId);
+  if (!cert) return null;
+
+  const doctorNow = await getDoctorProfile(cert.clinic_id);
   const logoBuffer = parseLogoBuffer(doctorNow.logo_base64);
+  cert.doctor_specialty = cert.doctor_specialty || doctorNow.specialty || null;
+  cert.doctor_license = cert.doctor_license || doctorNow.professional_license || null;
+  cert.doctor_personal_id = cert.doctor_personal_id || doctorNow.personal_id || null;
 
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="certificado-${cert.id}.pdf"`);
+  return { cert, logoBuffer };
+}
 
-  const doc = new PDFDocument({ size: "A4", margin: 42 });
-  doc.pipe(res);
+// Dibuja el PDF del certificado directamente sobre cualquier stream
+// escribible (la respuesta HTTP, o un stream en memoria para adjuntarlo a
+// un correo). Es la MISMA función que usan la descarga manual, el envío
+// automático por correo y el link público de WhatsApp — un solo lugar
+// donde vive el diseño del certificado.
+export function renderCertificatePdf(cert, logoBuffer, writable) {
+  const doc = new PDFDocument({ size: "A4", margin: 34 });
+  doc.pipe(writable);
+
+  // Marca de agua: el logo del consultorio, grande y muy tenue, centrado
+  // detrás de todo el contenido. Se dibuja PRIMERO (antes que cualquier
+  // texto) para que quede en el fondo — dibujar una imagen no mueve el
+  // cursor de texto de PDFKit, así que no afecta el resto del diseño.
+  if (logoBuffer) {
+    const wmSize = 320;
+    const wmX = (doc.page.width - wmSize) / 2;
+    const wmY = (doc.page.height - wmSize) / 2;
+    doc.opacity(0.07);
+    doc.image(logoBuffer, wmX, wmY, { width: wmSize, height: wmSize });
+    doc.opacity(1);
+  }
 
   const margin = doc.page.margins.left;
   const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
-  const label = (text) => doc.font("Helvetica-Bold").fontSize(9).fillColor("#333").text(text, { continued: false });
-  const value = (text) => doc.font("Helvetica").fontSize(10).fillColor("#000").text(text || "—");
+  // Etiqueta y valor van en la MISMA línea (en vez de en dos líneas
+  // separadas) para que el certificado completo quepa en una sola hoja.
   const row = (labelText, valueText) => {
-    // Evita que una etiqueta quede sola al pie de una página y su valor
-    // aparezca huérfano al inicio de la siguiente.
-    if (doc.y + 34 > doc.page.height - doc.page.margins.bottom) doc.addPage();
-    label(labelText);
-    value(valueText);
-    doc.moveDown(0.55); // espacio entre cada punto para que no se vea todo pegado
+    doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#333").text(`${labelText} `, { continued: true });
+    doc.font("Helvetica").fontSize(9).fillColor("#000").text(valueText || "—");
+    doc.moveDown(0.4);
   };
   const sectionTitle = (text) => {
-    doc.moveDown(0.35);
-    doc.font("Helvetica-Bold").fontSize(11).fillColor(BRAND_BLUE).text(text);
-    doc.moveTo(doc.x, doc.y + 3).lineTo(doc.page.width - doc.page.margins.right, doc.y + 3).strokeColor(BRAND_BLUE).opacity(0.35).stroke().opacity(1);
-    doc.moveDown(0.5);
+    doc.moveDown(1.3); // 1-2 líneas de aire entre el bloque anterior (membrete/A/B/C) y el siguiente
+    doc.font("Helvetica-Bold").fontSize(10.5).fillColor(BRAND_BLUE).text(text);
+    doc.moveTo(doc.x, doc.y + 2).lineTo(doc.page.width - doc.page.margins.right, doc.y + 2).strokeColor(BRAND_BLUE).opacity(0.35).stroke().opacity(1);
+    doc.moveDown(0.4);
   };
 
   // ---------- Encabezado ----------
-  // Logo del consultorio a la izquierda, logo de MedicOs (la aplicación) a
-  // la derecha, y en el centro — apilados y centrados — el título del
-  // documento, el nombre del médico (con mayor tamaño que el resto) y el
-  // nombre del consultorio.
-  const logoSize = 44;
+  // Columna izquierda: logo del consultorio (más grande) y, debajo, el
+  // nombre del consultorio. Columna derecha: logo de MedicOs (la app) y,
+  // debajo, "MedicOs". En el centro: el título del certificado y el
+  // nombre del médico.
+  const sideColWidth = 118;
+  const logoSize = 50;
   const headerTop = doc.y;
+  const centerX = margin + sideColWidth;
+  const centerWidth = contentWidth - sideColWidth * 2;
 
   if (logoBuffer) {
-    doc.image(logoBuffer, margin, headerTop, { width: logoSize, height: logoSize });
+    doc.image(logoBuffer, margin + sideColWidth / 2 - logoSize / 2, headerTop, { width: logoSize, height: logoSize });
   }
-  if (appLogoBuffer) {
-    doc.image(appLogoBuffer, doc.page.width - margin - logoSize, headerTop, { width: logoSize, height: logoSize });
-  }
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(8.5)
+    .fillColor("#333")
+    .text(cert.clinic_name || "Consultorio médico", margin, headerTop + logoSize + 4, { width: sideColWidth, align: "center" });
 
-  doc.font("Helvetica-Bold").fontSize(17).fillColor(BRAND_BLUE).text("CERTIFICADO MÉDICO", margin, headerTop + 2, {
-    width: contentWidth,
+  if (appLogoBuffer) {
+    doc.image(appLogoBuffer, doc.page.width - margin - sideColWidth / 2 - logoSize / 2, headerTop, { width: logoSize, height: logoSize });
+  }
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(8.5)
+    .fillColor("#333")
+    .text("MedicOs", doc.page.width - margin - sideColWidth, headerTop + logoSize + 4, { width: sideColWidth, align: "center" });
+
+  doc.font("Helvetica-Bold").fontSize(15).fillColor(BRAND_BLUE).text("CERTIFICADO MÉDICO", centerX, headerTop + 6, {
+    width: centerWidth,
     align: "center",
   });
   if (cert.doctor_name) {
-    doc.font("Helvetica-Bold").fontSize(13).fillColor(BRAND_BLUE).text(cert.doctor_name, margin, doc.y + 3, {
-      width: contentWidth,
+    doc.font("Helvetica-Bold").fontSize(11.5).fillColor(BRAND_BLUE).text(cert.doctor_name, centerX, doc.y + 4, {
+      width: centerWidth,
       align: "center",
     });
   }
-  doc.font("Helvetica").fontSize(10).fillColor("#444").text(cert.clinic_name || "Consultorio médico", margin, doc.y + 2, {
-    width: contentWidth,
-    align: "center",
-  });
 
   doc.x = margin; // volvemos al margen izquierdo normal para el resto del documento
-  doc.y = Math.max(doc.y, headerTop + logoSize) + 14; // nunca empezar antes de que terminen los logos, más aire antes del cuerpo
+  doc.y = headerTop + logoSize + 4 + 12; // nunca empezar antes de que termine el bloque de logo + nombre
 
   sectionTitle("A) DATOS DEL ESTABLECIMIENTO DE SALUD");
   row("Nombre del establecimiento:", cert.clinic_name);
@@ -314,26 +371,61 @@ certificatesRouter.get("/:id/pdf", async (req, res) => {
   row("Desde:", `${formatDateSlashes(cert.date_from)} (${spellDateSpanish(cert.date_from)})`);
   row("Hasta:", `${formatDateSlashes(cert.date_to)} (${spellDateSpanish(cert.date_to)})`);
 
-  // Espacio reservado para la firma: si no queda suficiente aire al final
-  // de la página, mejor pasamos a una página nueva en vez de apretarla
-  // contra el pie de página.
-  const signatureBlockHeight = 130;
-  if (doc.y + signatureBlockHeight > doc.page.height - doc.page.margins.bottom) {
-    doc.addPage();
+  // ---------- Firma ----------
+  // El espacio antes de la firma debe ser el más grande del documento: la
+  // empujamos hasta cerca del pie de página para que el certificado
+  // aproveche toda la hoja en vez de dejar el resto en blanco.
+  const signatureBlockHeight = 95; // línea + nombre + especialidad + reg. SENESCYT + C.I.
+  const bottomLimit = doc.page.height - doc.page.margins.bottom;
+  const targetSignatureTop = bottomLimit - signatureBlockHeight;
+  if (doc.y < targetSignatureTop) {
+    doc.y = targetSignatureTop;
   } else {
-    doc.moveDown(2.2);
+    doc.moveDown(0.8);
   }
 
-  const signWidth = 220;
+  const signWidth = 240;
   const signX = doc.page.width / 2 - signWidth / 2;
   doc.moveTo(signX, doc.y).lineTo(signX + signWidth, doc.y).strokeColor("#000").stroke();
-  doc.moveDown(0.35);
-  doc.font("Helvetica-Bold").fontSize(10.5).fillColor("#000").text(cert.doctor_name || "", signX, doc.y, { width: signWidth, align: "center" });
+  doc.moveDown(0.3);
+  doc.font("Helvetica-Bold").fontSize(10).fillColor("#000").text(cert.doctor_name || "", signX, doc.y, { width: signWidth, align: "center" });
   doc.moveDown(0.1);
-  doc.font("Helvetica").fontSize(9).fillColor("#333");
-  if (cert.doctor_personal_id) doc.text(`C.I. ${cert.doctor_personal_id}`, signX, doc.y, { width: signWidth, align: "center" });
+  doc.font("Helvetica").fontSize(8.5).fillColor("#333");
+  // Orden solicitado: nombre (arriba), especialidad, registro SENESCYT, número de cédula.
   if (cert.doctor_specialty) doc.text(cert.doctor_specialty, signX, doc.y, { width: signWidth, align: "center" });
   if (cert.doctor_license) doc.text(`Reg. SENESCYT No. ${cert.doctor_license}`, signX, doc.y, { width: signWidth, align: "center" });
+  if (cert.doctor_personal_id) doc.text(`C.I. ${cert.doctor_personal_id}`, signX, doc.y, { width: signWidth, align: "center" });
 
   doc.end();
+}
+
+certificatesRouter.get("/:id/pdf", async (req, res) => {
+  const owned = await db.prepare(`SELECT id FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!owned) return res.status(404).json({ error: "Certificado no encontrado" });
+
+  const ready = await getCertificateReadyForPdf(req.params.id);
+  if (!ready) return res.status(404).json({ error: "Certificado no encontrado" });
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="certificado-${ready.cert.id}.pdf"`);
+  renderCertificatePdf(ready.cert, ready.logoBuffer, res);
+});
+
+// POST /api/certificates/:id/send -> envío manual por WhatsApp o correo,
+// bajo demanda (además del envío automático si está activado).
+certificatesRouter.post("/:id/send", async (req, res) => {
+  const cert = await db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!cert) return res.status(404).json({ error: "Certificado no encontrado" });
+
+  const { channel } = req.body; // "whatsapp" | "email"
+  const result = await notifyDocumentIssued({
+    clinicId: req.user.clinic_id,
+    kind: "certificate",
+    id: cert.id,
+    patientPhone: cert.patient_phone,
+    patientEmail: cert.patient_email,
+    patientName: cert.patient_full_name,
+    forceChannel: channel,
+  });
+  res.json(result);
 });

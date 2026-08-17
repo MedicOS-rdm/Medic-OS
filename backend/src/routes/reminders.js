@@ -105,12 +105,12 @@ remindersWebhookRouter.post("/webhook", async (req, res) => {
     if (appt) {
       if (body === "1") {
         await db
-          .prepare(`UPDATE appointments SET status = 'confirmada', updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
+          .prepare(`UPDATE appointments SET status = 'confirmada', updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
           .run(appt.id);
         replyText = "¡Gracias! Tu cita quedó confirmada.";
       } else if (body === "2") {
         await db
-          .prepare(`UPDATE appointments SET status = 'cancelada', updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
+          .prepare(`UPDATE appointments SET status = 'cancelada', updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
           .run(appt.id);
         replyText = "Tu cita fue cancelada. Si deseas reagendar, comunícate al consultorio.";
       } else {

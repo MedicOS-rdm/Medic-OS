@@ -19,6 +19,8 @@ import { medicationsRouter } from "./routes/medications.js";
 import { doctorProfileRouter } from "./routes/doctorProfile.js";
 import { prescriptionsRouter } from "./routes/prescriptions.js";
 import { certificatesRouter } from "./routes/certificates.js";
+import { shareRouter } from "./routes/share.js";
+import { notificationSettingsRouter } from "./routes/notificationSettings.js";
 import { remindersRouter, remindersWebhookRouter } from "./routes/reminders.js";
 import { checkAndSendDueReminders } from "./reminders.js";
 
@@ -44,6 +46,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter); // protegida por ADMIN_SECRET, no por login normal
 app.use("/api/verify", verifyRouter); // lo escanea el QR de la receta
+app.use("/api/share", shareRouter); // PDF público de UNA receta/certificado (lo descarga WhatsApp)
 app.use("/api/reminders", remindersWebhookRouter); // lo llama Twilio (respuestas 1/2)
 
 // ---------- A partir de aquí, todo requiere sesión de médico/secretaria ----------
@@ -64,6 +67,7 @@ app.use("/api/doctor-profile", doctorProfileRouter);
 app.use("/api/prescriptions", requireRole("medico"), prescriptionsRouter);
 app.use("/api/certificates", requireRole("medico"), certificatesRouter);
 app.use("/api", requireRole("medico"), consultationsRouter);
+app.use("/api", requireRole("medico"), notificationSettingsRouter); // envío automático de recetas/certificados
 
 // Catálogos compartidos (CIE-10, medicamentos): solo médico, pero NO están
 // acotados por clínica porque son datos de referencia, no de pacientes.
@@ -82,6 +86,13 @@ app.use((err, _req, res, _next) => {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendDist = path.join(__dirname, "..", "..", "frontend", "dist");
 if (fs.existsSync(frontendDist)) {
+  // admin.html cambia poco a poco pero es crítico que SIEMPRE se sirva la
+  // versión más reciente (nunca una copia vieja cacheada por el navegador),
+  // así que la servimos explícitamente con "no cache" antes del estático.
+  app.get("/admin.html", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.sendFile(path.join(frontendDist, "admin.html"));
+  });
   app.use(express.static(frontendDist));
   app.get(/^(?!\/api).*/, (_req, res) => {
     res.sendFile(path.join(frontendDist, "index.html"));

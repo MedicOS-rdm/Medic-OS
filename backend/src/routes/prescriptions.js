@@ -2,8 +2,14 @@ import { Router } from "express";
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
 import { db, logAudit, newQrToken } from "../db.js";
+import { notifyDocumentIssued } from "../notifications.js";
 
 export const prescriptionsRouter = Router();
+
+// Mismo azul institucional de MedicOs usado en el certificado médico
+// (--accent del frontend), para que el nombre del consultorio y del
+// médico se vean con el color de la app también en la receta.
+const BRAND_BLUE = "#0460d3";
 
 async function getDoctorProfile(clinicId) {
   return (
@@ -82,6 +88,17 @@ prescriptionsRouter.post("/", async (req, res) => {
   await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "prescription", entityId: result.lastInsertRowid });
 
   const prescription = await db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(result.lastInsertRowid);
+
+  const patientFull = await db.prepare(`SELECT * FROM patients WHERE id = ?`).get(patient_id);
+  notifyDocumentIssued({
+    clinicId: req.user.clinic_id,
+    kind: "prescription",
+    id: prescription.id,
+    patientPhone: patientFull?.phone,
+    patientEmail: patientFull?.email,
+    patientName: patientFull ? `${patientFull.first_name} ${patientFull.last_name}` : "",
+  }).catch((err) => console.error("Error enviando notificación de receta:", err));
+
   res.status(201).json({ ...prescription, items: JSON.parse(prescription.items_json) });
 });
 
@@ -110,7 +127,7 @@ prescriptionsRouter.put("/:id", async (req, res) => {
   }
 
   await db
-    .prepare(`UPDATE prescriptions SET items_json = ?, instructions = ?, updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
+    .prepare(`UPDATE prescriptions SET items_json = ?, instructions = ?, updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
     .run(JSON.stringify(items), instructions ?? null, req.params.id);
 
   await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "update", entity: "prescription", entityId: req.params.id });
@@ -119,9 +136,19 @@ prescriptionsRouter.put("/:id", async (req, res) => {
   res.json({ ...updated, items: JSON.parse(updated.items_json) });
 });
 
-prescriptionsRouter.get("/:id/pdf", async (req, res) => {
-  const rx = await db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
-  if (!rx) return res.status(404).json({ error: "Receta no encontrada" });
+// DELETE /api/prescriptions/:id -> borra una receta emitida por error
+prescriptionsRouter.delete("/:id", async (req, res) => {
+  const existing = await db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Receta no encontrada" });
+
+  await db.prepare(`DELETE FROM prescriptions WHERE id = ?`).run(req.params.id);
+  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "delete", entity: "prescription", entityId: req.params.id });
+  res.json({ ok: true });
+});
+
+export async function getPrescriptionReadyForPdf(rxId, req) {
+  const rx = await db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(rxId);
+  if (!rx) return null;
 
   const patient = await db.prepare(`SELECT * FROM patients WHERE id = ?`).get(rx.patient_id);
   const items = JSON.parse(rx.items_json);
@@ -133,28 +160,32 @@ prescriptionsRouter.get("/:id/pdf", async (req, res) => {
   // la receta al emitirla) — así, si el consultorio cambia de logo más
   // adelante, los documentos reimpresos reflejan el logo vigente, en vez
   // de duplicar la imagen completa en cada receta guardada.
-  const doctorNow = await getDoctorProfile(req.user.clinic_id);
+  const doctorNow = await getDoctorProfile(rx.clinic_id);
   const logoBuffer = parseLogoBuffer(doctorNow.logo_base64);
 
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="receta-${rx.id}.pdf"`);
+  return { rx, patient, items, qrBuffer, logoBuffer };
+}
 
+// Dibuja el PDF de la receta sobre cualquier stream escribible — la MISMA
+// función que usan la descarga manual, el envío automático por correo y
+// el link público de WhatsApp.
+export function renderPrescriptionPdf({ rx, patient, items, qrBuffer, logoBuffer }, writable) {
   const doc = new PDFDocument({ size: "A5", margin: 40 });
-  doc.pipe(res);
+  doc.pipe(writable);
 
   const textStartX = logoBuffer ? doc.x + 46 : doc.x;
   const headerTop = doc.y;
   if (logoBuffer) {
     doc.image(logoBuffer, doc.x, headerTop, { width: 38, height: 38 });
   }
-  doc.font("Helvetica-Bold").fontSize(16).text(rx.clinic_name || "Consultorio médico", textStartX, headerTop);
+  doc.font("Helvetica-Bold").fontSize(16).fillColor(BRAND_BLUE).text(rx.clinic_name || "Consultorio médico", textStartX, headerTop);
   doc.font("Helvetica").fontSize(10).fillColor("#555");
   if (rx.clinic_address) doc.text(rx.clinic_address, textStartX);
   if (rx.clinic_phone) doc.text(`Tel: ${rx.clinic_phone}`, textStartX);
   doc.x = doc.page.margins.left; // volvemos al margen izquierdo normal para el resto del documento
   if (logoBuffer) doc.y = Math.max(doc.y, headerTop + 42); // nunca empezar antes de que termine el logo
   doc.moveDown(0.5);
-  doc.fillColor("#000").font("Helvetica-Bold").fontSize(11).text(rx.doctor_name || "");
+  doc.fillColor(BRAND_BLUE).font("Helvetica-Bold").fontSize(11).text(rx.doctor_name || "");
   doc.font("Helvetica").fontSize(9).fillColor("#555");
   const doctorLine = [rx.doctor_specialty, rx.doctor_license ? `Cédula ${rx.doctor_license}` : null]
     .filter(Boolean)
@@ -203,4 +234,36 @@ prescriptionsRouter.get("/:id/pdf", async (req, res) => {
   });
 
   doc.end();
+}
+
+prescriptionsRouter.get("/:id/pdf", async (req, res) => {
+  const owned = await db.prepare(`SELECT id FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!owned) return res.status(404).json({ error: "Receta no encontrada" });
+
+  const ready = await getPrescriptionReadyForPdf(req.params.id, req);
+  if (!ready) return res.status(404).json({ error: "Receta no encontrada" });
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="receta-${ready.rx.id}.pdf"`);
+  renderPrescriptionPdf(ready, res);
+});
+
+// POST /api/prescriptions/:id/send -> envío manual por WhatsApp o correo,
+// bajo demanda (además del envío automático si está activado).
+prescriptionsRouter.post("/:id/send", async (req, res) => {
+  const rx = await db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!rx) return res.status(404).json({ error: "Receta no encontrada" });
+
+  const patient = await db.prepare(`SELECT * FROM patients WHERE id = ?`).get(rx.patient_id);
+  const { channel } = req.body; // "whatsapp" | "email"
+  const result = await notifyDocumentIssued({
+    clinicId: req.user.clinic_id,
+    kind: "prescription",
+    id: rx.id,
+    patientPhone: patient?.phone,
+    patientEmail: patient?.email,
+    patientName: patient ? `${patient.first_name} ${patient.last_name}` : "",
+    forceChannel: channel,
+  });
+  res.json(result);
 });

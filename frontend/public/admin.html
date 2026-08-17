@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>MedicOs · Administración</title>
 <style>
   :root {
@@ -30,7 +33,16 @@
   th { color: var(--ink-soft); font-weight:600; }
   .gate { display:flex; gap:8px; }
   .gate input { flex:1; }
-  .hidden { display:none; }
+  .hidden { display:none !important; }
+  .modal-backdrop { position:fixed; inset:0; background:rgba(20,38,66,0.55); display:flex; align-items:center; justify-content:center; z-index:50; }
+  .pw-card { background: var(--surface); border-radius: 12px; padding: 22px; max-width: 380px; width: 90%; }
+  .pw-card h2 { font-size: 1.05rem; margin: 0 0 6px; }
+  .pw-card p { font-size: 0.85rem; color: var(--ink-soft); margin: 0 0 14px; }
+  .pw-row { display:flex; gap:8px; align-items:center; }
+  .pw-box { flex:1; background: var(--bg); border:1px solid var(--line); border-radius:7px; padding:10px 12px; font-family: monospace; font-size: 1.05rem; letter-spacing: 0.03em; word-break: break-all; }
+  .pw-copy-btn { background: var(--accent); color:#fff; border:none; border-radius:7px; padding:10px 14px; cursor:pointer; font-weight:600; font-size:0.85rem; white-space:nowrap; }
+  .pw-copy-btn.copied { background:#2e7d32; }
+  .pw-close-btn { margin-top:16px; background:transparent; border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:8px 14px; cursor:pointer; font-weight:600; width:100%; }
 </style>
 </head>
 <body>
@@ -53,12 +65,12 @@
       <label for="clinicName">Nombre del consultorio</label>
       <input id="clinicName" placeholder="Consultorio Dr. García" />
       <label for="fullName">Nombre completo del médico</label>
-      <input id="fullName" placeholder="Dr. Juan García" oninput="onFullNameInput()" />
+      <input id="fullName" placeholder="Dr. Juan García" autocomplete="off" oninput="onFullNameInput()" />
       <label for="username">Usuario (para iniciar sesión)</label>
-      <input id="username" placeholder="dr.garcia" oninput="onUsernameInput()" />
+      <input id="username" placeholder="dr.garcia" autocomplete="off" oninput="onUsernameInput()" />
       <div class="hint" id="usernameHint" style="font-size:0.75rem; color:var(--ink-soft); margin-top:4px;"></div>
       <label for="password">Contraseña temporal</label>
-      <input id="password" type="text" placeholder="Mínimo 6 caracteres" />
+      <input id="password" type="text" placeholder="Mínimo 6 caracteres" autocomplete="off" />
 
       <details style="margin-top:14px;">
         <summary style="cursor:pointer; font-size:0.85rem; color:var(--ink-soft);">
@@ -87,9 +99,22 @@
     <div class="card">
       <strong>Consultorios existentes</strong>
       <table id="clinicsTable">
-        <thead><tr><th>Nombre</th><th>Usuario</th><th>Usuarios</th><th>Pacientes</th><th>Creado</th><th colspan="2"></th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Usuario</th><th>Médico</th><th>Usuarios</th><th>Pacientes</th><th>Creado</th><th colspan="2"></th></tr></thead>
         <tbody id="clinicsBody"></tbody>
       </table>
+    </div>
+  </div>
+
+  <div id="pwModal" class="modal-backdrop hidden" onclick="if(event.target===this) closePwModal()">
+    <div class="pw-card">
+      <h2>Nueva contraseña temporal</h2>
+      <p id="pwModalUser"></p>
+      <div class="pw-row">
+        <div class="pw-box" id="pwModalValue"></div>
+        <button class="pw-copy-btn" id="pwCopyBtn" onclick="copyPwModal()">Copiar</button>
+      </div>
+      <p style="margin-top:10px;">Esta es la contraseña del <strong>médico/usuario</strong>, no la tuya de administrador. Compártela con él ahora — no se volverá a mostrar.</p>
+      <button class="pw-close-btn" onclick="closePwModal()">Cerrar</button>
     </div>
   </div>
 </div>
@@ -137,43 +162,104 @@
       <tr>
         <td>${c.name}</td>
         <td><code>${c.doctor_username || '—'}</code></td>
+        <td>
+          <span id="drName-${c.id}">${c.doctor_full_name || '—'}</span>
+          ${c.doctor_username ? `<button class="secondary" style="margin-left:6px;" onclick="editDoctorName(${c.id}, '${(c.doctor_full_name || '').replace(/'/g, "\\'")}')">Editar</button>` : ''}
+        </td>
         <td>${c.user_count}</td>
         <td>${c.patient_count}</td>
         <td>${new Date(c.created_at.replace(' ', 'T')).toLocaleDateString('es-MX')}</td>
-        <td><button class="secondary" onclick="resetPassword(${c.id}, '${c.name.replace(/'/g, "")}')">Restablecer contraseña</button></td>
-        <td><button class="danger" onclick="deleteClinic(${c.id}, '${c.name.replace(/'/g, "")}')">Eliminar</button></td>
+        <td><button class="secondary" onclick="resetPassword(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Restablecer contraseña</button></td>
+        <td><button class="danger" onclick="deleteClinic(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Eliminar</button></td>
       </tr>
-    `).join('') || '<tr><td colspan="7">Todavía no hay consultorios.</td></tr>';
+    `).join('') || '<tr><td colspan="8">Todavía no hay consultorios.</td></tr>';
+  }
+
+  // El nombre del médico solo se puede corregir DESDE AQUÍ — el propio
+  // médico no puede cambiarlo desde "Perfil del médico" en la app (a
+  // propósito, para que no sea él mismo quien lo edite por error o con
+  // mala intención).
+  async function editDoctorName(clinicId, currentName) {
+    const nuevo = prompt('Nombre completo correcto del médico:', currentName || '');
+    if (nuevo === null) return; // canceló
+    if (!nuevo.trim()) return alert('El nombre no puede quedar vacío.');
+    try {
+      await api('/clinics/' + clinicId + '/doctor-name', {
+        method: 'PUT',
+        body: JSON.stringify({ full_name: nuevo.trim() }),
+      });
+      loadClinics();
+    } catch (err) {
+      alert('No se pudo actualizar: ' + err.message);
+    }
   }
 
   async function resetPassword(id, name) {
     if (!confirm('¿Generar una contraseña nueva para el médico de "' + name + '"? La contraseña actual dejará de funcionar.')) return;
     try {
       const result = await api('/clinics/' + id + '/reset-password', { method: 'POST', body: JSON.stringify({}) });
-      alert('Nueva contraseña para ' + result.username + ':\n\n' + result.password + '\n\nCompártela con el médico ahora — no se volverá a mostrar.');
+      openPwModal(result.username, result.password);
     } catch (err) {
       alert('Error: ' + err.message);
     }
   }
 
-  let usernameTouched = false;
+  function openPwModal(username, password) {
+    document.getElementById('pwModalUser').textContent = 'Para ' + username + ':';
+    document.getElementById('pwModalValue').textContent = password;
+    document.getElementById('pwCopyBtn').textContent = 'Copiar';
+    document.getElementById('pwCopyBtn').classList.remove('copied');
+    document.getElementById('pwModal').classList.remove('hidden');
+  }
+
+  function closePwModal() {
+    document.getElementById('pwModal').classList.add('hidden');
+  }
+
+  async function copyPwModal() {
+    const password = document.getElementById('pwModalValue').textContent;
+    const btn = document.getElementById('pwCopyBtn');
+    try {
+      await navigator.clipboard.writeText(password);
+      btn.textContent = '¡Copiada!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = 'Copiar';
+        btn.classList.remove('copied');
+      }, 2000);
+    } catch (e) {
+      alert('No se pudo copiar automáticamente. Selecciona el texto y cópialo manualmente: ' + password);
+    }
+  }
+
   let suggestDebounce = null;
+  let lastSuggested = ""; // el último valor que NOSOTROS pusimos en Usuario (para saber si el médico lo tocó después)
 
   function onFullNameInput() {
-    if (usernameTouched) return;
     clearTimeout(suggestDebounce);
     const fullName = document.getElementById('fullName').value.trim();
     if (!fullName) return;
     suggestDebounce = setTimeout(async () => {
+      const usernameField = document.getElementById('username');
+      const current = usernameField.value.trim();
+      // Solo sugerimos si el campo está vacío, o si todavía tiene la
+      // última sugerencia que pusimos nosotros (o sea, el médico no lo
+      // editó a mano). Así, seguir escribiendo el nombre completo
+      // ("Carlos" -> "Carlos Garcia" -> "Carlos Garcia Cedeño") sigue
+      // actualizando el usuario sugerido en cada palabra.
+      if (current && current !== lastSuggested) return;
       try {
         const { suggestion } = await api('/suggest-username?desired=' + encodeURIComponent(fullName));
-        if (suggestion && !usernameTouched) document.getElementById('username').value = suggestion;
-      } catch (e) { /* si aún no has desbloqueado con la clave, ignoramos */ }
+        const stillOk = !usernameField.value.trim() || usernameField.value.trim() === lastSuggested;
+        if (suggestion && stillOk) {
+          usernameField.value = suggestion;
+          lastSuggested = suggestion;
+        }
+      } catch (e) { console.error('No se pudo sugerir usuario:', e); }
     }, 300);
   }
 
   function onUsernameInput() {
-    usernameTouched = true;
     document.getElementById('usernameHint').textContent = '';
   }
 
@@ -202,13 +288,13 @@
         document.getElementById(id).value = '';
       });
       document.getElementById('usernameHint').textContent = '';
-      usernameTouched = false;
+      lastSuggested = '';
       loadClinics();
     } catch (err) {
       showMsg('createMsg', err.message, false);
       if (err.suggestion) {
         const hint = document.getElementById('usernameHint');
-        hint.innerHTML = 'Prueba con: <a href="#" onclick="document.getElementById(\'username\').value=\'' + err.suggestion + '\'; usernameTouched=true; return false;">' + err.suggestion + '</a>';
+        hint.innerHTML = 'Prueba con: <a href="#" onclick="document.getElementById(\'username\').value=\'' + err.suggestion + '\'; lastSuggested=\'' + err.suggestion + '\'; return false;">' + err.suggestion + '</a>';
       }
     }
   }
@@ -220,6 +306,19 @@
   }
 
   if (SECRET) unlock();
+
+  // Blindaje: si el navegador restaura esta página desde su caché
+  // (por ejemplo al reabrir una pestaña con "Continuar donde lo dejaste"
+  // o al usar atrás/adelante), el modal de la contraseña NUNCA debe
+  // quedar abierto — siempre arrancamos con la pantalla de acceso limpia.
+  window.addEventListener("pageshow", () => {
+    closePwModal();
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePwModal();
+  });
+
 </script>
 </body>
 </html>

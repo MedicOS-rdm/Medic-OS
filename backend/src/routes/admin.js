@@ -37,7 +37,8 @@ adminRouter.get("/clinics", async (_req, res) => {
       `SELECT c.id, c.name, c.created_at,
         (SELECT COUNT(*) FROM users u WHERE u.clinic_id = c.id) AS user_count,
         (SELECT COUNT(*) FROM patients p WHERE p.clinic_id = c.id) AS patient_count,
-        (SELECT u2.username FROM users u2 WHERE u2.clinic_id = c.id AND u2.role = 'medico' ORDER BY u2.id LIMIT 1) AS doctor_username
+        (SELECT u2.username FROM users u2 WHERE u2.clinic_id = c.id AND u2.role = 'medico' ORDER BY u2.id LIMIT 1) AS doctor_username,
+        (SELECT u2.full_name FROM users u2 WHERE u2.clinic_id = c.id AND u2.role = 'medico' ORDER BY u2.id LIMIT 1) AS doctor_full_name
        FROM clinics c ORDER BY c.created_at DESC`
     )
     .all();
@@ -62,6 +63,30 @@ adminRouter.post("/clinics/:id/reset-password", async (req, res) => {
   await logAudit({ clinicId: req.params.id, actor: "admin", action: "update", entity: "user", entityId: doctor.id, detail: { reason: "password_reset" } });
 
   res.json({ username: doctor.username, password: newPassword });
+});
+
+// PUT /api/admin/clinics/:id/doctor-name -> corrige el nombre del médico
+// de esa clínica. Es la ÚNICA forma de cambiarlo: el propio médico no
+// puede editarlo desde "Perfil del médico" (ver doctorProfile.js). Se
+// actualiza en los DOS lugares donde vive ese nombre (la cuenta de
+// login y el perfil que se imprime en recetas/certificados) para que no
+// queden desincronizados.
+adminRouter.put("/clinics/:id/doctor-name", async (req, res) => {
+  const { full_name } = req.body;
+  if (!full_name || !full_name.trim()) {
+    return res.status(400).json({ error: "full_name es obligatorio" });
+  }
+
+  const doctor = await db
+    .prepare(`SELECT id FROM users WHERE clinic_id = ? AND role = 'medico' ORDER BY id LIMIT 1`)
+    .get(req.params.id);
+  if (!doctor) return res.status(404).json({ error: "No se encontró la cuenta de médico de esta clínica" });
+
+  await db.prepare(`UPDATE users SET full_name = ? WHERE id = ?`).run(full_name.trim(), doctor.id);
+  await db.prepare(`UPDATE doctor_profile SET full_name = ? WHERE clinic_id = ?`).run(full_name.trim(), req.params.id);
+  await logAudit({ clinicId: req.params.id, actor: "admin", action: "update", entity: "user", entityId: doctor.id, detail: { reason: "doctor_name_correction" } });
+
+  res.json({ ok: true, full_name: full_name.trim() });
 });
 
 // POST /api/admin/clinics -> crea una clínica nueva + su primera cuenta (médico)

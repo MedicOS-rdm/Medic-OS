@@ -29,7 +29,6 @@ doctorProfileRouter.get("/", async (req, res) => {
 
 doctorProfileRouter.put("/", requireRole("medico"), async (req, res) => {
   const {
-    full_name,
     personal_id,
     professional_license,
     specialty,
@@ -39,13 +38,21 @@ doctorProfileRouter.put("/", requireRole("medico"), async (req, res) => {
     clinic_address,
     clinic_phone,
   } = req.body;
+
+  // El nombre del médico NO se acepta aquí a propósito: una vez que el
+  // administrador de la plataforma lo da de alta, solo él puede
+  // corregirlo (desde /admin.html) — el propio médico no puede cambiarlo
+  // por su cuenta. Por eso se conserva el que ya estaba guardado en vez
+  // de leerlo del body, sin importar qué mande el cliente.
+  const current = await db.prepare(`SELECT full_name FROM doctor_profile WHERE clinic_id = ?`).get(req.user.clinic_id);
+  const full_name = current?.full_name ?? "";
+
   await db
     .prepare(
       `INSERT INTO doctor_profile
         (clinic_id, full_name, personal_id, professional_license, specialty, email, city, clinic_name, clinic_address, clinic_phone)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(clinic_id) DO UPDATE SET
-         full_name = excluded.full_name,
          personal_id = excluded.personal_id,
          professional_license = excluded.professional_license,
          specialty = excluded.specialty,
@@ -57,7 +64,7 @@ doctorProfileRouter.put("/", requireRole("medico"), async (req, res) => {
     )
     .run(
       req.user.clinic_id,
-      full_name ?? "",
+      full_name,
       personal_id ?? "",
       professional_license ?? "",
       specialty ?? "",

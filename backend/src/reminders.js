@@ -29,6 +29,27 @@ function formatTime(iso) {
   return new Date(iso).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Convierte un instante real (Date) al mismo formato de texto en que se
+// guarda appointments.start_time — "YYYY-MM-DDTHH:MM:SS" en hora de
+// Ecuador, SIN sufijo de zona horaria. Antes, checkAndSendDueReminders
+// comparaba esto contra un texto en UTC (vía .toISOString()), lo que
+// desfasaba la ventana de envío en 5 horas respecto a lo que el médico
+// configuró en "horas de anticipación".
+function ecuadorLocalText(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Guayaquil",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (t) => parts.find((p) => p.type === t).value;
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}`;
+}
+
 export async function sendReminderForAppointment(appointmentId, clinicId) {
   const appt = await db
     .prepare(
@@ -59,7 +80,7 @@ export async function sendReminderForAppointment(appointmentId, clinicId) {
 
   if (result.ok) {
     await db
-      .prepare(`UPDATE appointments SET reminder_sent_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS'), reminder_channel = ? WHERE id = ?`)
+      .prepare(`UPDATE appointments SET reminder_sent_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS'), reminder_channel = ? WHERE id = ?`)
       .run(result.simulated ? "simulado" : settings.provider, appointmentId);
     await db
       .prepare(`INSERT INTO reminder_log (appointment_id, direction, channel, body) VALUES (?, 'out', ?, ?)`)
@@ -92,8 +113,11 @@ export async function checkAndSendDueReminders() {
   const activeSettings = await db.prepare(`SELECT * FROM reminder_settings WHERE enabled = 1`).all();
 
   for (const settings of activeSettings) {
-    const windowStart = new Date(Date.now() + (settings.hours_before - 0.5) * 3600 * 1000).toISOString();
-    const windowEnd = new Date(Date.now() + (settings.hours_before + 0.5) * 3600 * 1000).toISOString();
+    // windowStart/windowEnd deben quedar en el MISMO formato y zona
+    // horaria que appointments.start_time (texto en hora de Ecuador, sin
+    // sufijo), o si no, la comparación de texto en SQL queda desalineada.
+    const windowStart = ecuadorLocalText(new Date(Date.now() + (settings.hours_before - 0.5) * 3600 * 1000));
+    const windowEnd = ecuadorLocalText(new Date(Date.now() + (settings.hours_before + 0.5) * 3600 * 1000));
 
     const due = await db
       .prepare(

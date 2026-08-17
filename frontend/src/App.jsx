@@ -9,17 +9,18 @@ import LoginScreen from "./components/LoginScreen.jsx";
 import UsersModal from "./components/UsersModal.jsx";
 import ChangePasswordModal from "./components/ChangePasswordModal.jsx";
 import ReminderSettingsModal from "./components/ReminderSettingsModal.jsx";
+import NotificationSettingsModal from "./components/NotificationSettingsModal.jsx";
 import Footer from "./components/Footer.jsx";
+import { localISODate } from "./utils/date.js";
 
 function todayISO() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return localISODate();
 }
 
 function shiftDate(iso, days) {
   const d = new Date(`${iso}T00:00:00`);
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return localISODate(d);
 }
 
 function formatHeaderDate(iso) {
@@ -69,6 +70,7 @@ export default function App() {
   const [showUsers, setShowUsers] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
   const [clinicLogo, setClinicLogo] = useState(null);
 
   const loadClinicLogo = useCallback(async () => {
@@ -142,10 +144,16 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <img src={clinicLogo || "/assets/logo.png"} alt="MedicOs" className="brand-mark" />
-          <div>
-            <div className="brand-name"><span className="brand-medic">Medic</span><span className="brand-os">Os</span></div>
-            <div className="brand-sub">{user.clinic_name || "Expediente & Agenda"}</div>
+          <div className="brand-clinic">
+            <img src={clinicLogo || "/assets/logo.png"} alt={user.clinic_name || "Consultorio"} className="brand-mark" />
+            <div className="brand-clinic-name">{user.clinic_name || "Consultorio"}</div>
+          </div>
+          <div className="brand-app">
+            <img src="/assets/logo.png" alt="MedicOs" className="brand-mark brand-mark-sm" />
+            <div>
+              <div className="brand-name"><span className="brand-medic">Medic</span><span className="brand-os">Os</span></div>
+              <div className="brand-app-caption">Producto de RonnDuCorp.</div>
+            </div>
           </div>
         </div>
 
@@ -187,6 +195,9 @@ export default function App() {
               </button>
               <button className="btn-ghost full" onClick={() => setShowReminders(true)}>
                 Recordatorios
+              </button>
+              <button className="btn-ghost full" onClick={() => setShowNotificationSettings(true)}>
+                Envío automático
               </button>
             </>
           )}
@@ -295,6 +306,10 @@ export default function App() {
       {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
 
       {showReminders && isMedico && <ReminderSettingsModal onClose={() => setShowReminders(false)} />}
+
+      {showNotificationSettings && isMedico && (
+        <NotificationSettingsModal onClose={() => setShowNotificationSettings(false)} />
+      )}
 
       <Footer />
     </div>

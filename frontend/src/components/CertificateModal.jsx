@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import DiagnosisSearch from "./DiagnosisSearch.jsx";
+import { localISODate } from "../utils/date.js";
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return localISODate();
 }
 
 function daysBetweenInclusive(fromISO, toISO) {
@@ -21,11 +22,21 @@ const TYPE_OPTIONS = [
 ];
 
 // existing: si se pasa un certificado ya emitido, el modal lo edita en vez
-// de crear uno nuevo.
-export default function CertificateModal({ patientId, consultationId, existing = null, doctorReady, onClose, onOpenDoctorProfile }) {
+// de crear uno nuevo. defaultDiagnosis: si se abre desde una consulta que
+// ya tiene diagnóstico (nota de evolución), se precarga aquí para no
+// tener que volver a escribirlo — el médico igual puede cambiarlo.
+export default function CertificateModal({
+  patientId,
+  consultationId,
+  existing = null,
+  defaultDiagnosis,
+  doctorReady,
+  onClose,
+  onOpenDoctorProfile,
+}) {
   const isEdit = Boolean(existing);
-  const [diagnosisCode, setDiagnosisCode] = useState(existing?.diagnosis_code || "");
-  const [diagnosisLabel, setDiagnosisLabel] = useState(existing?.diagnosis_label || "");
+  const [diagnosisCode, setDiagnosisCode] = useState(existing?.diagnosis_code || defaultDiagnosis?.code || "");
+  const [diagnosisLabel, setDiagnosisLabel] = useState(existing?.diagnosis_label || defaultDiagnosis?.label || "");
   const [clinicalPicture, setClinicalPicture] = useState(existing?.clinical_picture || "");
   const [presentsSymptoms, setPresentsSymptoms] = useState(existing ? Boolean(existing.presents_symptoms) : true);
   const [certificateType, setCertificateType] = useState(existing?.certificate_type || "enfermedad");

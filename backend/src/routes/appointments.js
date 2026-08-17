@@ -68,7 +68,7 @@ appointmentsRouter.patch("/:id/status", async (req, res) => {
   if (!existing) return res.status(404).json({ error: "Cita no encontrada" });
 
   await db
-    .prepare(`UPDATE appointments SET status = ?, updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
+    .prepare(`UPDATE appointments SET status = ?, updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
     .run(status, req.params.id);
 
   await logAudit({
@@ -92,7 +92,7 @@ appointmentsRouter.put("/:id", async (req, res) => {
     .prepare(
       `UPDATE appointments SET
         start_time = ?, duration_minutes = ?, visit_type = ?, reason = ?, notes = ?,
-        updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
+        updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
        WHERE id = ?`
     )
     .run(merged.start_time, merged.duration_minutes, merged.visit_type, merged.reason, merged.notes, req.params.id);

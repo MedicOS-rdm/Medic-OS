@@ -141,7 +141,7 @@ patientsRouter.put("/:id", async (req, res) => {
         email = ?, emergency_contact_name = ?, emergency_contact_phone = ?,
         blood_type = ?, allergies = ?, chronic_conditions = ?, notes = ?,
         id_number = ?, address = ?, workplace = ?, job_title = ?, clinical_history_number = ?,
-        updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
+        updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
        WHERE id = ? AND clinic_id = ?`
     )
     .run(

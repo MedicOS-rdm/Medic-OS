@@ -54,6 +54,35 @@ usersRouter.post("/", async (req, res) => {
   );
 });
 
+// PUT /api/users/:id -> el médico puede corregir el nombre de una cuenta
+// de SECRETARIA (nunca el de una cuenta de médico — ni siquiera la
+// propia; ver la nota en admin.js sobre por qué eso solo lo cambia el
+// administrador de la plataforma).
+usersRouter.put("/:id", async (req, res) => {
+  const target = await db.prepare(`SELECT * FROM users WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!target) return res.status(404).json({ error: "Usuario no encontrado" });
+  if (target.role === "medico") {
+    return res.status(400).json({ error: "El nombre de una cuenta de médico solo lo puede corregir el administrador de la plataforma" });
+  }
+
+  const { full_name } = req.body;
+  if (!full_name || !full_name.trim()) {
+    return res.status(400).json({ error: "full_name es obligatorio" });
+  }
+
+  await db.prepare(`UPDATE users SET full_name = ? WHERE id = ?`).run(full_name.trim(), target.id);
+  await logAudit({
+    clinicId: req.user.clinic_id,
+    actor: req.user.username,
+    action: "update",
+    entity: "user",
+    entityId: target.id,
+    detail: { reason: "name_correction" },
+  });
+
+  res.json(await db.prepare(`SELECT id, username, full_name, role, created_at FROM users WHERE id = ?`).get(target.id));
+});
+
 // POST /api/users/:id/reset-password -> el médico genera una clave
 // temporal nueva para una cuenta de secretaria (por ejemplo si la olvidó).
 // La secretaria debe cambiarla desde "Cambiar contraseña" apenas entre.

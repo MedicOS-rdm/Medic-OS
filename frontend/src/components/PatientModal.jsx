@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { formatAge } from "../utils/age.js";
 
 const EMPTY = {
   first_name: "",
@@ -79,6 +80,10 @@ export default function PatientModal({ isMedico = true, patient = null, onClose,
           <label>
             Fecha de nacimiento
             <input type="date" value={form.birth_date || ""} onChange={set("birth_date")} />
+          </label>
+          <label>
+            Edad
+            <input value={formatAge(form.birth_date) || "—"} disabled placeholder="Se calcula sola" />
           </label>
           <label>
             Género

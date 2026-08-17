@@ -44,7 +44,7 @@ function toPgPlaceholders(sql) {
 
 // Tablas cuya llave primaria NO se llama "id" (usan clinic_id como PK,
 // son "una fila por clínica"): a esas nunca hay que pedirles RETURNING id.
-const TABLES_WITHOUT_ID_PK = /into\s+(doctor_profile|reminder_settings)\b/i;
+const TABLES_WITHOUT_ID_PK = /into\s+(doctor_profile|reminder_settings|notification_settings)\b/i;
 
 function ensureReturningId(sql) {
   const trimmed = sql.trim();
@@ -107,7 +107,22 @@ export const db = {
 // "YYYY-MM-DD HH:MM:SS" (vía to_char(now(), ...)) — el mismo formato que
 // generaba SQLite — para que todo el código existente que hace
 // `fecha.replace(' ', 'T')` siga funcionando sin cambios.
-const NOW_TEXT = `to_char(now(), 'YYYY-MM-DD HH24:MI:SS')`;
+//
+// IMPORTANTE (corregido): now() de Postgres da la hora en UTC. Si se
+// guarda tal cual, todo el código que lee ese texto (frontend Y los PDF)
+// lo interpreta como si YA fuera hora local de Ecuador — sin restar las 5
+// horas de diferencia — porque el texto no lleva marca de zona horaria.
+// Por eso "creado a las 20:55" (UTC) se mostraba como "8:55 pm" en vez de
+// las 3:55 pm reales. La cita (appointments.start_time) nunca tuvo este
+// problema porque se arma directo del formulario ("YYYY-MM-DDTHH:MM:00")
+// sin pasar por now(), o sea que ya nace en hora de Ecuador.
+//
+// La corrección: convertir now() a hora de Ecuador ANTES de convertirlo a
+// texto, para que TODOS los created_at/updated_at queden con el mismo
+// formato "ya en hora local" que appointments.start_time — así el resto
+// del código (que asume hora local) queda automáticamente correcto sin
+// tener que tocar cada pantalla o PDF uno por uno.
+const NOW_TEXT = `to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')`;
 
 // Se activa (si el proveedor de Postgres lo permite) dentro de initDb().
 // Cuando está en true, las búsquedas de texto (ej. catálogo CIE-10) pueden
@@ -202,6 +217,29 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_consultations_clinic ON consultations(clinic_id);
     CREATE INDEX IF NOT EXISTS idx_consultations_patient ON consultations(patient_id);
 
+    -- Historia clínica estructurada tipo SOAP completo. Todas estas
+    -- columnas son opcionales (nullable) y se agregan con ADD COLUMN IF
+    -- NOT EXISTS para no romper bases ya desplegadas con el esquema
+    -- anterior (más simple). Los campos "_json" guardan listas/objetos
+    -- (diagnósticos adicionales, medicamentos del tratamiento, examen
+    -- físico, estudios) como texto JSON, igual que ya se hace con
+    -- prescriptions.items_json.
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS chief_complaint TEXT;              -- S: motivo de consulta
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS present_illness TEXT;              -- S: enfermedad actual
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS relevant_history TEXT;             -- S: antecedentes relevantes
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS physical_exam_json TEXT;           -- O: examen físico (plantilla)
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS clinical_findings TEXT;            -- O: hallazgos
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS clinical_assessment TEXT;          -- A: evaluación clínica
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS additional_diagnoses_json TEXT;    -- A: diagnósticos adicionales
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS treatment_meds_json TEXT;          -- P: tratamiento farmacológico
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS non_pharmacological_treatment TEXT; -- P: tratamiento no farmacológico
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS studies_lab_json TEXT;             -- P: estudios de laboratorio
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS studies_imaging_json TEXT;         -- P: estudios de imagen
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS patient_education TEXT;            -- P: educación al paciente
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS warning_signs TEXT;                -- P: signos de alarma
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS follow_up_interval TEXT;           -- P: seguimiento (ej. "2 semanas")
+    ALTER TABLE consultations ADD COLUMN IF NOT EXISTS follow_up_date TEXT;               -- P: seguimiento, fecha calculada
+
     CREATE TABLE IF NOT EXISTS cie11_catalog (
       code TEXT PRIMARY KEY,
       label TEXT NOT NULL
@@ -275,6 +313,7 @@ export async function initDb() {
       clinic_address TEXT,
       clinic_phone TEXT,
       issue_place TEXT,
+      share_token TEXT,
       created_at TEXT NOT NULL DEFAULT (${NOW_TEXT})
     );
     CREATE INDEX IF NOT EXISTS idx_certificates_clinic ON certificates(clinic_id);
@@ -302,6 +341,27 @@ export async function initDb() {
       hours_before INTEGER NOT NULL DEFAULT 24,
       enabled INTEGER NOT NULL DEFAULT 0
     );
+
+    -- Envío automático de recetas/certificados por WhatsApp (reutiliza las
+    -- credenciales de Twilio de reminder_settings) y por correo (SMTP
+    -- propio). Una fila por consultorio.
+    CREATE TABLE IF NOT EXISTS notification_settings (
+      clinic_id INTEGER PRIMARY KEY REFERENCES clinics(id) ON DELETE CASCADE,
+      auto_send_whatsapp INTEGER NOT NULL DEFAULT 0,
+      auto_send_email INTEGER NOT NULL DEFAULT 0,
+      smtp_host TEXT,
+      smtp_port INTEGER,
+      smtp_secure INTEGER NOT NULL DEFAULT 0,
+      smtp_user TEXT,
+      smtp_pass TEXT,
+      smtp_from_name TEXT,
+      smtp_from_email TEXT
+    );
+
+    -- Bases desplegadas antes de este cambio no tienen esta columna en
+    -- certificates todavía; se agrega sin tocar los certificados ya
+    -- emitidos (quedan con share_token NULL hasta que se reenvíen).
+    ALTER TABLE certificates ADD COLUMN IF NOT EXISTS share_token TEXT;
 
     CREATE TABLE IF NOT EXISTS reminder_log (
       id SERIAL PRIMARY KEY,
@@ -369,36 +429,81 @@ export async function initDb() {
     );
   }
 
-  const medsSeed = [
-    ["Paracetamol", "Tempra, Tylenol", "Tabletas 500 mg"],
-    ["Paracetamol", "Tempra, Tylenol", "Jarabe 120 mg/5 ml"],
-    ["Ibuprofeno", "Advil, Motrin", "Tabletas 400 mg"],
-    ["Ibuprofeno", "Advil, Motrin", "Suspensión 100 mg/5 ml"],
-    ["Amoxicilina", "Amoxil", "Cápsulas 500 mg"],
-    ["Amoxicilina", "Amoxil", "Suspensión 250 mg/5 ml"],
-    ["Losartán", "Cozaar", "Tabletas 50 mg"],
-    ["Metformina", "Glucophage", "Tabletas 850 mg"],
-    ["Omeprazol", "Losec", "Cápsulas 20 mg"],
-    ["Loratadina", "Clarityne", "Tabletas 10 mg"],
-    ["Salbutamol", "Ventolin", "Inhalador 100 mcg"],
-    ["Diclofenaco", "Voltaren", "Tabletas 50 mg"],
-    ["Enalapril", "Renitec", "Tabletas 10 mg"],
-    ["Atorvastatina", "Lipitor", "Tabletas 20 mg"],
-    ["Cetirizina", "Zyrtec", "Tabletas 10 mg"],
-    ["Azitromicina", "Zithromax", "Tabletas 500 mg"],
-    ["Ácido acetilsalicílico", "Aspirina", "Tabletas 100 mg"],
-    ["Metamizol", "Neomelubrina", "Tabletas 500 mg"],
-    ["Dexametasona", "Decadron", "Tabletas 0.5 mg"],
-    ["Complejo B", "Neurobion", "Tabletas"],
-  ];
-  const medsCount = await pool.query(`SELECT COUNT(*)::int AS n FROM medications_catalog`);
-  if (medsCount.rows[0].n === 0) {
-    for (const [generic_name, commercial_names, presentation] of medsSeed) {
-      await pool.query(
-        `INSERT INTO medications_catalog (generic_name, commercial_names, presentation) VALUES ($1, $2, $3)`,
-        [generic_name, commercial_names, presentation]
-      );
-    }
+  // Catálogo de medicamentos (nombre genérico, nombres comerciales de
+  // referencia y presentación). Se carga desde backend/data/medications-es.json
+  // — una lista de formulario general de uso común en Ecuador/Latinoamérica,
+  // no un vademécum oficial; para prescripción de medicamentos controlados
+  // o de alto riesgo, siempre contrastar contra el registro sanitario
+  // vigente (ARCSA en Ecuador).
+  //
+  // A diferencia del seed anterior (que solo corría una vez si la tabla
+  // estaba vacía), este usa UPSERT: cada vez que el servidor arranca,
+  // agrega cualquier medicamento nuevo del archivo que aún no exista, sin
+  // duplicar ni tocar los que el catálogo ya tenía. Así, ampliar este
+  // archivo en el futuro alcanza para que los catálogos ya desplegados
+  // se pongan al día solos, sin perder medicamentos que el médico haya
+  // agregado manualmente aparte.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'medications_catalog_generic_presentation_key'
+      ) THEN
+        ALTER TABLE medications_catalog
+          ADD CONSTRAINT medications_catalog_generic_presentation_key UNIQUE (generic_name, presentation);
+      END IF;
+    END $$;
+  `);
+  const medsDataPath = path.join(__dirname, "..", "data", "medications-es.json");
+  const medsSeed = JSON.parse(await fs.readFile(medsDataPath, "utf-8"));
+  {
+    const generics = medsSeed.map((m) => m[0]);
+    const commercials = medsSeed.map((m) => m[1]);
+    const presentations = medsSeed.map((m) => m[2]);
+    await pool.query(
+      `INSERT INTO medications_catalog (generic_name, commercial_names, presentation)
+       SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[])
+       ON CONFLICT (generic_name, presentation) DO NOTHING`,
+      [generics, commercials, presentations]
+    );
+  }
+
+  // ---------- Migración única: corregir fechas guardadas en UTC ----------
+  // Antes de este cambio, created_at/updated_at se guardaban en UTC pero
+  // se LEÍAN como si ya fueran hora de Ecuador (ver nota junto a
+  // NOW_TEXT) — un desfase de 5 horas. NOW_TEXT ya quedó corregido para
+  // los registros NUEVOS; esto corrige los registros VIEJOS que ya
+  // quedaron guardados con la hora equivocada, restándoles esas 5 horas
+  // una sola vez. Se guarda un marcador para que, aunque el servidor
+  // reinicie muchas veces, esta corrección NUNCA se vuelva a aplicar dos
+  // veces sobre los mismos datos (eso los dejaría mal de nuevo).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT (${NOW_TEXT})
+    );
+  `);
+  const MIGRATION_NAME = "fix_utc_timestamps_to_ecuador_2026_08";
+  const already = await pool.query(`SELECT 1 FROM schema_migrations WHERE name = $1`, [MIGRATION_NAME]);
+  if (already.rows.length === 0) {
+    // Reinterpreta el texto viejo (mal etiquetado como si fuera local)
+    // como UTC de verdad, y lo convierte a la hora local de Ecuador.
+    // NO toca appointments.start_time: esa columna nunca tuvo el bug,
+    // porque se arma directo del formulario de la cita, sin pasar por
+    // now().
+    const fix = (col) => `${col} = to_char((${col}::timestamp AT TIME ZONE 'UTC') AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')`;
+    await pool.query(`UPDATE clinics SET ${fix("created_at")}`);
+    await pool.query(`UPDATE patients SET ${fix("created_at")}, ${fix("updated_at")}`);
+    await pool.query(`UPDATE appointments SET ${fix("created_at")}, ${fix("updated_at")}`);
+    await pool.query(`UPDATE appointments SET ${fix("reminder_sent_at")} WHERE reminder_sent_at IS NOT NULL`);
+    await pool.query(`UPDATE consultations SET ${fix("created_at")}`);
+    await pool.query(`UPDATE prescriptions SET ${fix("created_at")}`);
+    await pool.query(`UPDATE certificates SET ${fix("created_at")}`);
+    await pool.query(`UPDATE users SET ${fix("created_at")}`);
+    await pool.query(`UPDATE reminder_log SET ${fix("created_at")}`);
+    await pool.query(`UPDATE audit_log SET ${fix("created_at")}`);
+    await pool.query(`INSERT INTO schema_migrations (name) VALUES ($1)`, [MIGRATION_NAME]);
+    console.log(`[migración] Horas de registros existentes corregidas de UTC a hora de Ecuador (${MIGRATION_NAME})`);
   }
 }
 

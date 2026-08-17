@@ -48,6 +48,7 @@ export const api = {
   users: {
     list: () => request(`/users`),
     create: (data) => request(`/users`, { method: "POST", body: JSON.stringify(data) }),
+    update: (id, data) => request(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     remove: (id) => request(`/users/${id}`, { method: "DELETE" }),
     resetPassword: (id) => request(`/users/${id}/reset-password`, { method: "POST" }),
     suggestUsername: (desired) => request(`/users/suggest-username?desired=${encodeURIComponent(desired)}`),
@@ -69,6 +70,7 @@ export const api = {
     listByPatient: (patientId) => request(`/patients/${patientId}/consultations`),
     create: (data) => request(`/consultations`, { method: "POST", body: JSON.stringify(data) }),
     update: (id, data) => request(`/consultations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    remove: (id) => request(`/consultations/${id}`, { method: "DELETE" }),
   },
   cie11: {
     search: (q) => request(`/cie11?q=${encodeURIComponent(q)}`),
@@ -87,6 +89,8 @@ export const api = {
     get: (id) => request(`/prescriptions/${id}`),
     create: (data) => request(`/prescriptions`, { method: "POST", body: JSON.stringify(data) }),
     update: (id, data) => request(`/prescriptions/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    remove: (id) => request(`/prescriptions/${id}`, { method: "DELETE" }),
+    send: (id, channel) => request(`/prescriptions/${id}/send`, { method: "POST", body: JSON.stringify({ channel }) }),
     pdfUrl: (id) => `${BASE}/prescriptions/${id}/pdf?token=${encodeURIComponent(getToken() || "")}`,
   },
   certificates: {
@@ -94,11 +98,17 @@ export const api = {
     get: (id) => request(`/certificates/${id}`),
     create: (data) => request(`/certificates`, { method: "POST", body: JSON.stringify(data) }),
     update: (id, data) => request(`/certificates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    remove: (id) => request(`/certificates/${id}`, { method: "DELETE" }),
+    send: (id, channel) => request(`/certificates/${id}/send`, { method: "POST", body: JSON.stringify({ channel }) }),
     pdfUrl: (id) => `${BASE}/certificates/${id}/pdf?token=${encodeURIComponent(getToken() || "")}`,
   },
   reminders: {
     getSettings: () => request(`/reminder-settings`),
     updateSettings: (data) => request(`/reminder-settings`, { method: "PUT", body: JSON.stringify(data) }),
     send: (appointmentId) => request(`/appointments/${appointmentId}/send-reminder`, { method: "POST" }),
+  },
+  notifications: {
+    getSettings: () => request(`/notification-settings`),
+    updateSettings: (data) => request(`/notification-settings`, { method: "PUT", body: JSON.stringify(data) }),
   },
 };
