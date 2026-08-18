@@ -320,7 +320,14 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
   const todayKey = localISODate();
   const todaysConsultation = history.find((c) => dateKey(c.created_at) === todayKey);
   const defaultConsultationId = todaysConsultation ? todaysConsultation.id : null;
-  const defaultDiagnosis = todaysConsultation?.diagnosis_label
+  // Prioriza el diagnóstico que el médico tiene escrito AHORA MISMO en el
+  // formulario de la nota (aunque todavía no la haya guardado) — así, si
+  // llena el diagnóstico y de una vez pulsa "+ Nuevo certificado" sin
+  // guardar antes, igual se precarga. Si el formulario está vacío, cae de
+  // respaldo al diagnóstico de la nota que ya se guardó hoy (si existe).
+  const defaultDiagnosis = note.diagnosis_label
+    ? { code: note.diagnosis_code, label: note.diagnosis_label }
+    : todaysConsultation?.diagnosis_label
     ? { code: todaysConsultation.diagnosis_code, label: todaysConsultation.diagnosis_label }
     : null;
 
