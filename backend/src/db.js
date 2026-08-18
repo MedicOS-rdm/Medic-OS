@@ -392,12 +392,19 @@ export async function initDb() {
   // No usamos un servicio de archivos aparte (S3, etc.) para mantener el
   // MVP simple; por eso se limita el tamaño al subirlo (ver routes/doctorProfile.js).
   await ensureColumn("doctor_profile", "logo_base64", "TEXT");
+  // Celular personal del médico — se imprime en la receta en vez de la
+  // cédula profesional (que ya no se muestra ahí).
+  await ensureColumn("doctor_profile", "mobile_phone", "TEXT");
   await ensureColumn("patients", "id_number", "TEXT");
   await ensureColumn("patients", "address", "TEXT");
   await ensureColumn("patients", "workplace", "TEXT");
   await ensureColumn("patients", "job_title", "TEXT");
   await ensureColumn("patients", "clinical_history_number", "TEXT");
   await ensureColumn("prescriptions", "updated_at", "TEXT");
+  // Celular del médico, congelado en la receta al emitirla (igual que
+  // doctor_name, doctor_license, etc.) para que ediciones futuras del
+  // perfil no cambien recetas ya emitidas.
+  await ensureColumn("prescriptions", "doctor_mobile_phone", "TEXT");
   await ensureColumn("certificates", "updated_at", "TEXT");
 
   // ---------- Catálogo CIE-10 en español (más de 11,000 códigos) ----------

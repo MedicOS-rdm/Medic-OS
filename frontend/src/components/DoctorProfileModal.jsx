@@ -147,6 +147,10 @@ export default function DoctorProfileModal({ onClose, onSaved }) {
             <input value={form.clinic_phone} onChange={set("clinic_phone")} />
           </label>
           <label>
+            Celular (aparece en la receta)
+            <input value={form.mobile_phone} onChange={set("mobile_phone")} placeholder="09XXXXXXXX" />
+          </label>
+          <label>
             Ciudad (lugar de emisión)
             <input value={form.city} onChange={set("city")} placeholder="Manta" />
           </label>

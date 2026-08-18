@@ -13,10 +13,11 @@ import { localISODate } from "../utils/date.js";
 import {
   LAB_STUDIES,
   IMAGING_STUDIES,
-  FOLLOW_UP_OPTIONS,
+  FOLLOW_UP_QUICK_OPTIONS,
   defaultPhysicalExam,
   physicalExamToText,
-  computeFollowUpDate,
+  addDaysToDate,
+  describeFollowUpInterval,
 } from "../soapCatalogs.js";
 
 const EMPTY_NOTE = {
@@ -797,24 +798,51 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                 </label>
               </div>
 
-              <label style={{ marginTop: 12, display: "block", maxWidth: 320 }}>
+              <label style={{ marginTop: 12, display: "block", maxWidth: 360 }}>
                 Seguimiento / control
-                <select
-                  value={note.follow_up_interval}
+                <input
+                  type="date"
+                  value={note.follow_up_date}
                   onChange={(e) => {
-                    const interval = e.target.value;
-                    setNote((n) => ({ ...n, follow_up_interval: interval, follow_up_date: computeFollowUpDate(interval) || "" }));
+                    const date = e.target.value;
+                    setNote((n) => ({
+                      ...n,
+                      follow_up_date: date,
+                      follow_up_interval: describeFollowUpInterval(date),
+                    }));
                   }}
-                >
-                  {FOLLOW_UP_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
+                />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                  {FOLLOW_UP_QUICK_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      className="btn-ghost sm"
+                      onClick={() => {
+                        const date = addDaysToDate(opt.days);
+                        setNote((n) => ({
+                          ...n,
+                          follow_up_date: date,
+                          follow_up_interval: describeFollowUpInterval(date),
+                        }));
+                      }}
+                    >
                       {opt.label}
-                    </option>
+                    </button>
                   ))}
-                </select>
+                  {note.follow_up_date && (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => setNote((n) => ({ ...n, follow_up_date: "", follow_up_interval: "" }))}
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
                 {note.follow_up_date && (
                   <span className="hint" style={{ display: "block", marginTop: 4 }}>
-                    Fecha estimada de control: {note.follow_up_date}
+                    {note.follow_up_interval} · {note.follow_up_date}
                   </span>
                 )}
               </label>

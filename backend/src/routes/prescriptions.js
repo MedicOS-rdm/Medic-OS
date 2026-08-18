@@ -20,6 +20,7 @@ async function getDoctorProfile(clinicId) {
       clinic_name: "",
       clinic_address: "",
       clinic_phone: "",
+      mobile_phone: "",
     }
   );
 }
@@ -32,6 +33,16 @@ function calcAge(birthDate) {
   const m = now.getMonth() - b.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
   return age;
+}
+
+// Formatea una fecha "YYYY-MM-DD" (sin hora) a texto legible sin caer en
+// el corrimiento de día por zona horaria que da `new Date("YYYY-MM-DD")`
+// (se interpreta como medianoche UTC). Se fija el mediodía para evitar eso.
+function formatIsoDate(isoDate) {
+  if (!isoDate) return null;
+  const d = new Date(`${isoDate}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
 }
 
 // Convierte un "data URI" (ej. "data:image/png;base64,....") guardado en
@@ -67,8 +78,8 @@ prescriptionsRouter.post("/", async (req, res) => {
     .prepare(
       `INSERT INTO prescriptions
         (clinic_id, patient_id, consultation_id, qr_token, items_json, instructions,
-         doctor_name, doctor_license, doctor_specialty, clinic_name, clinic_address, clinic_phone)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         doctor_name, doctor_license, doctor_specialty, doctor_mobile_phone, clinic_name, clinic_address, clinic_phone)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       req.user.clinic_id,
@@ -80,6 +91,7 @@ prescriptionsRouter.post("/", async (req, res) => {
       doctor.full_name,
       doctor.professional_license,
       doctor.specialty,
+      doctor.mobile_phone,
       doctor.clinic_name,
       doctor.clinic_address,
       doctor.clinic_phone
@@ -163,48 +175,114 @@ export async function getPrescriptionReadyForPdf(rxId, req) {
   const doctorNow = await getDoctorProfile(rx.clinic_id);
   const logoBuffer = parseLogoBuffer(doctorNow.logo_base64);
 
-  return { rx, patient, items, qrBuffer, logoBuffer };
+  // Próxima consulta (fecha marcada en "Seguimiento / control" de la nota
+  // de evolución que originó esta receta, si la receta viene ligada a una
+  // consulta). Se muestra a la derecha de los datos del paciente.
+  let nextVisitDate = null;
+  if (rx.consultation_id) {
+    const consultation = await db
+      .prepare(`SELECT follow_up_date FROM consultations WHERE id = ?`)
+      .get(rx.consultation_id);
+    nextVisitDate = consultation?.follow_up_date || null;
+  }
+
+  return { rx, patient, items, qrBuffer, logoBuffer, nextVisitDate };
 }
 
 // Dibuja el PDF de la receta sobre cualquier stream escribible — la MISMA
 // función que usan la descarga manual, el envío automático por correo y
 // el link público de WhatsApp.
-export function renderPrescriptionPdf({ rx, patient, items, qrBuffer, logoBuffer }, writable) {
+export function renderPrescriptionPdf({ rx, patient, items, qrBuffer, logoBuffer, nextVisitDate }, writable) {
   const doc = new PDFDocument({ size: "A5", margin: 40 });
   doc.pipe(writable);
 
-  const textStartX = logoBuffer ? doc.x + 46 : doc.x;
+  const contentLeft = doc.page.margins.left;
+  const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+  // ---------- Marca de agua: logo del consultorio, muy tenue, centrado
+  // detrás de todo el contenido ----------
+  if (logoBuffer) {
+    const cursorX = doc.x;
+    const cursorY = doc.y;
+    const wmSize = 260;
+    doc.opacity(0.06);
+    doc.image(logoBuffer, (doc.page.width - wmSize) / 2, (doc.page.height - wmSize) / 2, {
+      width: wmSize,
+      height: wmSize,
+    });
+    doc.opacity(1);
+    doc.x = cursorX;
+    doc.y = cursorY;
+  }
+
+  // ---------- Encabezado: logo pequeño + nombre del consultorio centrado ----------
   const headerTop = doc.y;
   if (logoBuffer) {
-    doc.image(logoBuffer, doc.x, headerTop, { width: 38, height: 38 });
+    doc.image(logoBuffer, contentLeft, headerTop, { width: 34, height: 34 });
   }
-  doc.font("Helvetica-Bold").fontSize(16).fillColor(BRAND_BLUE).text(rx.clinic_name || "Consultorio médico", textStartX, headerTop);
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(16)
+    .fillColor(BRAND_BLUE)
+    .text(rx.clinic_name || "Consultorio médico", contentLeft, headerTop, { width: contentWidth, align: "center" });
   doc.font("Helvetica").fontSize(10).fillColor("#555");
-  if (rx.clinic_address) doc.text(rx.clinic_address, textStartX);
-  if (rx.clinic_phone) doc.text(`Tel: ${rx.clinic_phone}`, textStartX);
-  doc.x = doc.page.margins.left; // volvemos al margen izquierdo normal para el resto del documento
-  if (logoBuffer) doc.y = Math.max(doc.y, headerTop + 42); // nunca empezar antes de que termine el logo
+  if (rx.clinic_address) doc.text(rx.clinic_address, contentLeft, doc.y, { width: contentWidth, align: "center" });
+  if (rx.clinic_phone) doc.text(`Tel: ${rx.clinic_phone}`, contentLeft, doc.y, { width: contentWidth, align: "center" });
+  doc.x = contentLeft; // volvemos al margen izquierdo normal para el resto del documento
+  if (logoBuffer) doc.y = Math.max(doc.y, headerTop + 38); // nunca terminar antes de que acabe el logo
   doc.moveDown(0.5);
+
+  // ---------- Datos del médico: solo nombre, especialidad y celular ----------
   doc.fillColor(BRAND_BLUE).font("Helvetica-Bold").fontSize(11).text(rx.doctor_name || "");
   doc.font("Helvetica").fontSize(9).fillColor("#555");
-  const doctorLine = [rx.doctor_specialty, rx.doctor_license ? `Cédula ${rx.doctor_license}` : null]
-    .filter(Boolean)
-    .join(" · ");
-  if (doctorLine) doc.text(doctorLine);
+  if (rx.doctor_specialty) doc.text(rx.doctor_specialty);
+  if (rx.doctor_mobile_phone) doc.text(`Cel: ${rx.doctor_mobile_phone}`);
   doc.moveDown();
 
   doc.strokeColor("#ccc").moveTo(40, doc.y).lineTo(doc.page.width - 40, doc.y).stroke();
   doc.moveDown();
 
-  doc.fillColor("#000").font("Helvetica-Bold").fontSize(10).text("Paciente:", { continued: true });
+  // ---------- Datos del paciente (izquierda) + próxima consulta (derecha) ----------
+  const patientBlockTop = doc.y;
+  const nextVisitColWidth = 150;
+  const nextVisitColX = doc.page.width - doc.page.margins.right - nextVisitColWidth;
+  const patientColWidth = nextVisitColX - contentLeft - 10;
+
+  doc.fillColor("#000").font("Helvetica-Bold").fontSize(10).text("Paciente:", contentLeft, patientBlockTop, {
+    continued: true,
+    width: patientColWidth,
+  });
   doc.font("Helvetica").text(` ${patient.first_name} ${patient.last_name}`);
   const age = calcAge(patient.birth_date);
   doc.font("Helvetica").fontSize(9).fillColor("#555");
   const patientMeta = [age !== null ? `${age} años` : null, patient.allergies ? `Alergias: ${patient.allergies}` : null]
     .filter(Boolean)
     .join(" · ");
-  if (patientMeta) doc.text(patientMeta);
-  doc.fillColor("#000").fontSize(9).text(`Fecha: ${new Date(rx.created_at.replace(" ", "T")).toLocaleDateString("es-MX")}`);
+  if (patientMeta) doc.text(patientMeta, contentLeft, doc.y, { width: patientColWidth });
+  doc
+    .fillColor("#000")
+    .fontSize(9)
+    .text(`Fecha: ${new Date(rx.created_at.replace(" ", "T")).toLocaleDateString("es-MX")}`, contentLeft, doc.y, {
+      width: patientColWidth,
+    });
+  const patientBlockBottom = doc.y;
+
+  const nextVisitLabel = formatIsoDate(nextVisitDate);
+  if (nextVisitLabel) {
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(9)
+      .fillColor(BRAND_BLUE)
+      .text("Próxima consulta:", nextVisitColX, patientBlockTop, { width: nextVisitColWidth, align: "right" });
+    doc
+      .font("Helvetica")
+      .fontSize(9)
+      .fillColor("#000")
+      .text(nextVisitLabel, nextVisitColX, doc.y, { width: nextVisitColWidth, align: "right" });
+  }
+
+  doc.x = contentLeft;
+  doc.y = Math.max(patientBlockBottom, doc.y);
   doc.moveDown();
 
   doc.font("Helvetica-Bold").fontSize(13).text("Rx", { underline: false });

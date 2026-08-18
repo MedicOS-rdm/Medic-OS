@@ -184,28 +184,51 @@ export const TREATMENT_DURATION_OPTIONS = [
 ];
 
 // ---------- P · Seguimiento ----------
-// value: se usa para calcular la fecha de control sumando días a partir
-// de hoy; label: lo que ve el médico en el <select>.
-export const FOLLOW_UP_OPTIONS = [
-  { value: "", label: "Sin control programado", days: null },
-  { value: "3_dias", label: "En 3 días", days: 3 },
-  { value: "1_semana", label: "En 1 semana", days: 7 },
-  { value: "2_semanas", label: "En 2 semanas", days: 14 },
-  { value: "1_mes", label: "En 1 mes", days: 30 },
-  { value: "2_meses", label: "En 2 meses", days: 60 },
-  { value: "3_meses", label: "En 3 meses", days: 90 },
-  { value: "6_meses", label: "En 6 meses", days: 180 },
-  { value: "1_ano", label: "En 1 año", days: 365 },
-  { value: "si_persiste", label: "Solo si persisten los síntomas", days: null },
+// Botones rápidos: cada uno fija la fecha exacta sumando "days" a partir
+// de hoy (el médico también puede escoger la fecha directamente en el
+// calendario). value/days se usan solo para ubicar el botón activo.
+export const FOLLOW_UP_QUICK_OPTIONS = [
+  { value: "3_dias", label: "3 días", days: 3 },
+  { value: "1_semana", label: "1 semana", days: 7 },
+  { value: "2_semanas", label: "2 semanas", days: 14 },
+  { value: "1_mes", label: "1 mes", days: 30 },
+  { value: "2_meses", label: "2 meses", days: 60 },
+  { value: "3_meses", label: "3 meses", days: 90 },
+  { value: "6_meses", label: "6 meses", days: 180 },
+  { value: "1_ano", label: "1 año", days: 365 },
 ];
 
-export function computeFollowUpDate(intervalValue, fromDate = new Date()) {
-  const option = FOLLOW_UP_OPTIONS.find((o) => o.value === intervalValue);
-  if (!option || !option.days) return null;
+export function addDaysToDate(days, fromDate = new Date()) {
   const d = new Date(fromDate);
-  d.setDate(d.getDate() + option.days);
+  d.setDate(d.getDate() + days);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+// A partir de una fecha exacta ("YYYY-MM-DD") elegida en el calendario,
+// calcula automáticamente en cuánto tiempo es (días, semanas, meses o
+// años) respecto de hoy — es el texto que se guarda en follow_up_interval
+// y el que se le muestra al médico como confirmación.
+export function describeFollowUpInterval(isoDate, fromDate = new Date()) {
+  if (!isoDate) return "";
+  const target = new Date(`${isoDate}T12:00:00`);
+  const today = new Date(fromDate);
+  today.setHours(12, 0, 0, 0);
+  if (Number.isNaN(target.getTime())) return "";
+
+  const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return diffDays === 0 ? "Mismo día" : "Fecha en el pasado";
+  if (diffDays < 14) return `En ${diffDays} día${diffDays === 1 ? "" : "s"}`;
+  if (diffDays < 60) {
+    const weeks = Math.round(diffDays / 7);
+    return `En ${weeks} semana${weeks === 1 ? "" : "s"}`;
+  }
+  if (diffDays < 330) {
+    const months = Math.round(diffDays / 30);
+    return `En ${months} mes${months === 1 ? "" : "es"}`;
+  }
+  const years = Math.round(diffDays / 365);
+  return `En ${years} año${years === 1 ? "" : "s"}`;
 }

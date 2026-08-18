@@ -22,6 +22,7 @@ doctorProfileRouter.get("/", async (req, res) => {
       clinic_name: "",
       clinic_address: "",
       clinic_phone: "",
+      mobile_phone: "",
       logo_base64: null,
     }
   );
@@ -37,6 +38,7 @@ doctorProfileRouter.put("/", requireRole("medico"), async (req, res) => {
     clinic_name,
     clinic_address,
     clinic_phone,
+    mobile_phone,
   } = req.body;
 
   // El nombre del médico NO se acepta aquí a propósito: una vez que el
@@ -50,8 +52,8 @@ doctorProfileRouter.put("/", requireRole("medico"), async (req, res) => {
   await db
     .prepare(
       `INSERT INTO doctor_profile
-        (clinic_id, full_name, personal_id, professional_license, specialty, email, city, clinic_name, clinic_address, clinic_phone)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (clinic_id, full_name, personal_id, professional_license, specialty, email, city, clinic_name, clinic_address, clinic_phone, mobile_phone)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(clinic_id) DO UPDATE SET
          personal_id = excluded.personal_id,
          professional_license = excluded.professional_license,
@@ -60,7 +62,8 @@ doctorProfileRouter.put("/", requireRole("medico"), async (req, res) => {
          city = excluded.city,
          clinic_name = excluded.clinic_name,
          clinic_address = excluded.clinic_address,
-         clinic_phone = excluded.clinic_phone`
+         clinic_phone = excluded.clinic_phone,
+         mobile_phone = excluded.mobile_phone`
     )
     .run(
       req.user.clinic_id,
@@ -72,7 +75,8 @@ doctorProfileRouter.put("/", requireRole("medico"), async (req, res) => {
       city ?? "",
       clinic_name ?? "",
       clinic_address ?? "",
-      clinic_phone ?? ""
+      clinic_phone ?? "",
+      mobile_phone ?? ""
     );
   res.json(await db.prepare(`SELECT * FROM doctor_profile WHERE clinic_id = ?`).get(req.user.clinic_id));
 });
