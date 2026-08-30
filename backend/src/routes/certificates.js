@@ -237,19 +237,57 @@ certificatesRouter.delete("/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-// Prepara los datos de un certificado (con el fallback del perfil actual
-// del médico) y devuelve también el logo del consultorio vigente — usado
+// Prepara los datos de un certificado listos para dibujar el PDF: se usa
 // tanto por la ruta autenticada de descarga como por el envío por
 // WhatsApp/correo y la ruta pública de compartir.
+//
+// Los certificados guardan una "foto" del médico y del paciente al momento
+// de emitirse (correcto para un documento médico-legal: no debe cambiar
+// solo porque después se edite un perfil). Pero si esa foto quedó
+// incompleta porque el perfil del médico o los datos del paciente todavía
+// no se habían llenado en ese momento, este respaldo completa lo que falte
+// con los datos ACTUALES — así un certificado viejo con campos en blanco se
+// ve completo en cuanto el perfil se termina de llenar, sin tener que
+// volver a generarlo. Esto NO modifica la fila guardada en "certificates";
+// solo el objeto que se usa para dibujar el PDF en este momento.
 export async function getCertificateReadyForPdf(certId) {
   const cert = await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(certId);
   if (!cert) return null;
 
   const doctorNow = await getDoctorProfile(cert.clinic_id);
   const logoBuffer = parseLogoBuffer(doctorNow.logo_base64);
+
+  cert.doctor_name = cert.doctor_name || doctorNow.full_name || null;
   cert.doctor_specialty = cert.doctor_specialty || doctorNow.specialty || null;
   cert.doctor_license = cert.doctor_license || doctorNow.professional_license || null;
   cert.doctor_personal_id = cert.doctor_personal_id || doctorNow.personal_id || null;
+  cert.doctor_email = cert.doctor_email || doctorNow.email || null;
+  cert.clinic_name = cert.clinic_name || doctorNow.clinic_name || null;
+  cert.clinic_address = cert.clinic_address || doctorNow.clinic_address || null;
+  cert.clinic_phone = cert.clinic_phone || doctorNow.clinic_phone || null;
+  cert.issue_place = cert.issue_place || doctorNow.city || null;
+
+  if (
+    !cert.patient_address ||
+    !cert.patient_phone ||
+    !cert.patient_email ||
+    !cert.patient_institution ||
+    !cert.patient_job_title ||
+    !cert.patient_id_number ||
+    !cert.patient_clinical_history_number
+  ) {
+    const patientNow = await db.prepare(`SELECT * FROM patients WHERE id = ?`).get(cert.patient_id);
+    if (patientNow) {
+      cert.patient_full_name = cert.patient_full_name || `${patientNow.first_name} ${patientNow.last_name}`;
+      cert.patient_address = cert.patient_address || patientNow.address || null;
+      cert.patient_phone = cert.patient_phone || patientNow.phone || null;
+      cert.patient_email = cert.patient_email || patientNow.email || null;
+      cert.patient_institution = cert.patient_institution || patientNow.workplace || null;
+      cert.patient_job_title = cert.patient_job_title || patientNow.job_title || null;
+      cert.patient_id_number = cert.patient_id_number || patientNow.id_number || null;
+      cert.patient_clinical_history_number = cert.patient_clinical_history_number || patientNow.clinical_history_number || null;
+    }
+  }
 
   return { cert, logoBuffer };
 }
