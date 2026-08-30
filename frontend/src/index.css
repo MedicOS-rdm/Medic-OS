@@ -421,6 +421,34 @@ textarea {
   grid-column: span 2;
 }
 
+.password-field {
+  position: relative;
+  display: flex;
+}
+
+.password-field input {
+  flex: 1;
+  padding-right: 68px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--accent, #0460d3);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.password-toggle:hover {
+  text-decoration: underline;
+}
+
 .form-error {
   color: var(--allergy);
   font-size: 0.85rem;

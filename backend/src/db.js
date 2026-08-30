@@ -406,6 +406,30 @@ export async function initDb() {
   // perfil no cambien recetas ya emitidas.
   await ensureColumn("prescriptions", "doctor_mobile_phone", "TEXT");
   await ensureColumn("certificates", "updated_at", "TEXT");
+  // Snapshot de paciente/médico en el certificado: si la tabla "certificates"
+  // ya existía en esta base (desplegada antes de que estas columnas se
+  // agregaran al CREATE TABLE de arriba), "CREATE TABLE IF NOT EXISTS" no
+  // las crea — por eso se agregan también aquí, de forma aditiva y segura,
+  // igual que ya se hacía con "updated_at" y "share_token". Sin este
+  // respaldo, el PDF se genera pero los datos del médico y del paciente
+  // salen en blanco aunque los formularios estén completos.
+  await ensureColumn("certificates", "patient_full_name", "TEXT");
+  await ensureColumn("certificates", "patient_address", "TEXT");
+  await ensureColumn("certificates", "patient_phone", "TEXT");
+  await ensureColumn("certificates", "patient_email", "TEXT");
+  await ensureColumn("certificates", "patient_institution", "TEXT");
+  await ensureColumn("certificates", "patient_job_title", "TEXT");
+  await ensureColumn("certificates", "patient_id_number", "TEXT");
+  await ensureColumn("certificates", "patient_clinical_history_number", "TEXT");
+  await ensureColumn("certificates", "doctor_name", "TEXT");
+  await ensureColumn("certificates", "doctor_personal_id", "TEXT");
+  await ensureColumn("certificates", "doctor_license", "TEXT");
+  await ensureColumn("certificates", "doctor_specialty", "TEXT");
+  await ensureColumn("certificates", "doctor_email", "TEXT");
+  await ensureColumn("certificates", "clinic_name", "TEXT");
+  await ensureColumn("certificates", "clinic_address", "TEXT");
+  await ensureColumn("certificates", "clinic_phone", "TEXT");
+  await ensureColumn("certificates", "issue_place", "TEXT");
 
   // ---------- Catálogo CIE-10 en español (más de 11,000 códigos) ----------
   // Se carga desde backend/data/cie10-es.json — un archivo de datos local,

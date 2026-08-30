@@ -5,6 +5,7 @@ import Footer from "./Footer.jsx";
 export default function LoginScreen({ onAuthenticated }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -47,7 +48,22 @@ export default function LoginScreen({ onAuthenticated }) {
           </label>
           <label className="span-2">
             Contraseña
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <div className="password-field">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((v) => !v)}
+                tabIndex={-1}
+                aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+              >
+                {showPassword ? "Ocultar" : "Mostrar"}
+              </button>
+            </div>
           </label>
 
           {error && <p className="form-error span-2">{error}</p>}
