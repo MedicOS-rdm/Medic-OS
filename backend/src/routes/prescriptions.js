@@ -1,6 +1,7 @@
 import { Router } from "express";
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
+import crypto from "node:crypto";
 import { db, logAudit, newQrToken } from "../db.js";
 import { notifyDocumentIssued } from "../notifications.js";
 
@@ -10,6 +11,16 @@ export const prescriptionsRouter = Router();
 // (--accent del frontend), para que el nombre del consultorio y del
 // médico se vean con el color de la app también en la receta.
 const BRAND_BLUE = "#0460d3";
+
+// Cuánto dura vigente el enlace público (WhatsApp) antes de expirar solo
+// (C-03) — igual que en certificates.js.
+const SHARE_LINK_VALID_DAYS = 30;
+function newShareExpiry() {
+  return new Date(Date.now() + SHARE_LINK_VALID_DAYS * 24 * 60 * 60 * 1000).toISOString();
+}
+function newShareToken() {
+  return crypto.randomBytes(16).toString("hex");
+}
 
 async function getDoctorProfile(clinicId) {
   return (
@@ -67,25 +78,50 @@ prescriptionsRouter.post("/", async (req, res) => {
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Agrega al menos un medicamento" });
   }
+  if (items.length > 30) {
+    return res.status(400).json({ error: "Una receta no puede tener más de 30 medicamentos" });
+  }
+  // A-07 de la auditoría: validación mínima de cada línea (antes se
+  // guardaba cualquier cosa, incluyendo un medicamento sin nombre).
+  for (const item of items) {
+    if (!item || typeof item.generic_name !== "string" || !item.generic_name.trim()) {
+      return res.status(400).json({ error: "Cada medicamento necesita un nombre genérico" });
+    }
+  }
 
   const patient = await db.prepare(`SELECT id FROM patients WHERE id = ? AND clinic_id = ?`).get(patient_id, req.user.clinic_id);
   if (!patient) return res.status(400).json({ error: "El paciente no existe" });
 
+  // A-08: si viene ligada a una consulta puntual, esa consulta debe ser
+  // del mismo paciente.
+  if (consultation_id) {
+    const consultation = await db
+      .prepare(`SELECT id FROM consultations WHERE id = ? AND patient_id = ? AND clinic_id = ?`)
+      .get(consultation_id, patient_id, req.user.clinic_id);
+    if (!consultation) {
+      return res.status(400).json({ error: "consultation_id no corresponde a este paciente" });
+    }
+  }
+
   const doctor = await getDoctorProfile(req.user.clinic_id);
   const qr_token = newQrToken();
+  const share_token = newShareToken();
+  const share_expires_at = newShareExpiry();
 
   const result = await db
     .prepare(
       `INSERT INTO prescriptions
-        (clinic_id, patient_id, consultation_id, qr_token, items_json, instructions,
+        (clinic_id, patient_id, consultation_id, qr_token, share_token, share_expires_at, items_json, instructions,
          doctor_name, doctor_license, doctor_specialty, doctor_mobile_phone, clinic_name, clinic_address, clinic_phone)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       req.user.clinic_id,
       patient_id,
       consultation_id ?? null,
       qr_token,
+      share_token,
+      share_expires_at,
       JSON.stringify(items),
       instructions ?? null,
       doctor.full_name,
@@ -128,34 +164,137 @@ prescriptionsRouter.get("/:id", async (req, res) => {
   res.json({ ...rx, items: JSON.parse(rx.items_json) });
 });
 
-// PUT /api/prescriptions/:id -> corregir una receta ya emitida (por si se escribió con un error)
+// PUT /api/prescriptions/:id -> C-04: igual que en certificates.js, ya no
+// sobrescribe la receta original. Crea una receta NUEVA con los cambios
+// (una corrección) y conserva la original marcada como "corregida", con
+// su propio folio y enlace hacia la versión vigente.
 prescriptionsRouter.put("/:id", async (req, res) => {
   const existing = await db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Receta no encontrada" });
+  if (existing.status === "anulado") {
+    return res.status(409).json({ error: "Esta receta fue anulada y no se puede corregir. Emite una nueva." });
+  }
+  if (existing.status === "corregido") {
+    return res.status(409).json({ error: "Esta receta ya fue reemplazada por una corrección posterior." });
+  }
 
   const { items, instructions } = req.body;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Agrega al menos un medicamento" });
   }
+  if (items.length > 30) {
+    return res.status(400).json({ error: "Una receta no puede tener más de 30 medicamentos" });
+  }
+  for (const item of items) {
+    if (!item || typeof item.generic_name !== "string" || !item.generic_name.trim()) {
+      return res.status(400).json({ error: "Cada medicamento necesita un nombre genérico" });
+    }
+  }
+
+  const qr_token = newQrToken();
+  const share_token = newShareToken();
+  const share_expires_at = newShareExpiry();
+  const result = await db
+    .prepare(
+      `INSERT INTO prescriptions
+        (clinic_id, patient_id, consultation_id, qr_token, share_token, share_expires_at, items_json, instructions,
+         doctor_name, doctor_license, doctor_specialty, doctor_mobile_phone, clinic_name, clinic_address, clinic_phone,
+         corrected_from_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      existing.clinic_id,
+      existing.patient_id,
+      existing.consultation_id,
+      qr_token,
+      share_token,
+      share_expires_at,
+      JSON.stringify(items),
+      instructions ?? null,
+      existing.doctor_name,
+      existing.doctor_license,
+      existing.doctor_specialty,
+      existing.doctor_mobile_phone,
+      existing.clinic_name,
+      existing.clinic_address,
+      existing.clinic_phone,
+      existing.id
+    );
 
   await db
-    .prepare(`UPDATE prescriptions SET items_json = ?, instructions = ?, updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
-    .run(JSON.stringify(items), instructions ?? null, req.params.id);
+    .prepare(
+      `UPDATE prescriptions SET status = 'corregido', superseded_by_id = ?,
+        updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+       WHERE id = ?`
+    )
+    .run(result.lastInsertRowid, existing.id);
 
-  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "update", entity: "prescription", entityId: req.params.id });
+  await logAudit({
+    clinicId: req.user.clinic_id,
+    actor: req.user.username,
+    action: "correct",
+    entity: "prescription",
+    entityId: existing.id,
+    detail: { new_id: result.lastInsertRowid },
+  });
 
+  const updated = await db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(result.lastInsertRowid);
+  res.json({ ...updated, items: JSON.parse(updated.items_json) });
+});
+
+// DELETE /api/prescriptions/:id -> C-04: anula (con motivo obligatorio) en
+// vez de borrar físicamente. El enlace público deja de servir el PDF de
+// inmediato.
+prescriptionsRouter.delete("/:id", async (req, res) => {
+  const existing = await db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Receta no encontrada" });
+  if (existing.status === "anulado") return res.status(409).json({ error: "Esta receta ya estaba anulada" });
+
+  const reason = String(req.body?.reason || "").trim();
+  if (reason.length < 5) {
+    return res.status(400).json({ error: "Indica el motivo de la anulación (mínimo 5 caracteres)" });
+  }
+
+  await db
+    .prepare(
+      `UPDATE prescriptions SET status = 'anulado', void_reason = ?, voided_by = ?, share_revoked = 1,
+        voided_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+       WHERE id = ?`
+    )
+    .run(reason, req.user.username, req.params.id);
+
+  await logAudit({
+    clinicId: req.user.clinic_id,
+    actor: req.user.username,
+    action: "void",
+    entity: "prescription",
+    entityId: req.params.id,
+    detail: { reason },
+  });
   const updated = await db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(req.params.id);
   res.json({ ...updated, items: JSON.parse(updated.items_json) });
 });
 
-// DELETE /api/prescriptions/:id -> borra una receta emitida por error
-prescriptionsRouter.delete("/:id", async (req, res) => {
-  const existing = await db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+// POST /api/prescriptions/:id/share/revoke y /share/rotate -> igual que en
+// certificates.js (C-03).
+prescriptionsRouter.post("/:id/share/revoke", async (req, res) => {
+  const existing = await db.prepare(`SELECT id FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Receta no encontrada" });
-
-  await db.prepare(`DELETE FROM prescriptions WHERE id = ?`).run(req.params.id);
-  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "delete", entity: "prescription", entityId: req.params.id });
+  await db.prepare(`UPDATE prescriptions SET share_revoked = 1 WHERE id = ?`).run(req.params.id);
+  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "share_revoke", entity: "prescription", entityId: req.params.id });
   res.json({ ok: true });
+});
+
+prescriptionsRouter.post("/:id/share/rotate", async (req, res) => {
+  const existing = await db.prepare(`SELECT id FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Receta no encontrada" });
+  const share_token = newShareToken();
+  const share_expires_at = newShareExpiry();
+  await db
+    .prepare(`UPDATE prescriptions SET share_token = ?, share_expires_at = ?, share_revoked = 0 WHERE id = ?`)
+    .run(share_token, share_expires_at, req.params.id);
+  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "share_rotate", entity: "prescription", entityId: req.params.id });
+  res.json({ share_token, share_expires_at });
 });
 
 export async function getPrescriptionReadyForPdf(rxId, req) {
@@ -215,6 +354,18 @@ export function renderPrescriptionPdf({ rx, patient, items, qrBuffer, logoBuffer
     doc.y = cursorY;
   }
 
+  // Aviso de estado (C-04/A-09): igual que en el certificado, una versión
+  // vieja o anulada se marca de forma bien visible.
+  if (rx.status === "anulado" || rx.status === "corregido") {
+    const label = rx.status === "anulado" ? "ANULADA" : "REEMPLAZADA";
+    doc.save();
+    doc.rotate(-30, { origin: [doc.page.width / 2, doc.page.height / 2] });
+    doc.font("Helvetica-Bold").fontSize(40).fillColor("#c0392b").opacity(0.22);
+    doc.text(label, 0, doc.page.height / 2 - 20, { width: doc.page.width, align: "center" });
+    doc.opacity(1);
+    doc.restore();
+  }
+
   // ---------- Encabezado: logo pequeño + nombre del consultorio centrado ----------
   const headerTop = doc.y;
   if (logoBuffer) {
@@ -230,6 +381,8 @@ export function renderPrescriptionPdf({ rx, patient, items, qrBuffer, logoBuffer
   if (rx.clinic_phone) doc.text(`Tel: ${rx.clinic_phone}`, contentLeft, doc.y, { width: contentWidth, align: "center" });
   doc.x = contentLeft; // volvemos al margen izquierdo normal para el resto del documento
   if (logoBuffer) doc.y = Math.max(doc.y, headerTop + 38); // nunca terminar antes de que acabe el logo
+  const statusLabel = { emitido: "Emitido", corregido: "Corregida (reemplazada)", anulado: "Anulada" }[rx.status] || "Emitido";
+  doc.font("Helvetica").fontSize(6.5).fillColor("#999").text(`Folio N° ${rx.id} · Estado: ${statusLabel}`, contentLeft, doc.y, { width: contentWidth, align: "right" });
   doc.moveDown(0.5);
 
   // ---------- Datos del médico: solo nombre, especialidad y celular ----------

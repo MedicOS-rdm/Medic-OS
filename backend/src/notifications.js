@@ -99,12 +99,13 @@ function streamToBuffer(renderFn) {
 }
 
 async function getShareToken(kind, id) {
-  if (kind === "certificate") {
-    const row = await db.prepare(`SELECT share_token FROM certificates WHERE id = ?`).get(id);
-    return row?.share_token || null;
-  }
-  const row = await db.prepare(`SELECT qr_token FROM prescriptions WHERE id = ?`).get(id);
-  return row?.qr_token || null;
+  // Ambos documentos usan "share_token" para el ENLACE PÚBLICO del PDF
+  // completo — distinto del "qr_token" que llevan las recetas para el QR
+  // de verificación mínima impreso en el propio documento (C-01/C-03: no
+  // deben ser el mismo secreto, ver routes/verify.js y routes/share.js).
+  const table = kind === "certificate" ? "certificates" : "prescriptions";
+  const row = await db.prepare(`SELECT share_token FROM ${table} WHERE id = ?`).get(id);
+  return row?.share_token || null;
 }
 
 // Construye un "request" mínimo (protocolo + host) para reutilizar

@@ -210,22 +210,38 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
     setNote(EMPTY_NOTE);
   }
 
+  // Anular (antes: "eliminar") — el backend ya no borra estos documentos
+  // físicamente (C-04 de la auditoría: se conserva el historial
+  // médico-legal), así que ahora se pide un motivo obligatorio para poder
+  // registrar la anulación.
+  function askVoidReason() {
+    const reason = prompt("Motivo de la anulación (obligatorio, mínimo 5 caracteres):");
+    if (reason === null) return null; // canceló
+    return reason.trim();
+  }
+
   async function handleDeleteNote(id) {
-    if (!confirm("¿Eliminar esta nota de evolución? Esta acción no se puede deshacer.")) return;
-    await api.consultations.remove(id);
+    const reason = askVoidReason();
+    if (reason === null) return;
+    if (reason.length < 5) return alert("Escribe un motivo de al menos 5 caracteres.");
+    await api.consultations.remove(id, reason);
     if (editingNoteId === id) cancelEditNote();
     load();
   }
 
   async function handleDeleteRx(id) {
-    if (!confirm("¿Eliminar esta receta? Esta acción no se puede deshacer.")) return;
-    await api.prescriptions.remove(id);
+    const reason = askVoidReason();
+    if (reason === null) return;
+    if (reason.length < 5) return alert("Escribe un motivo de al menos 5 caracteres.");
+    await api.prescriptions.remove(id, reason);
     load();
   }
 
   async function handleDeleteCert(id) {
-    if (!confirm("¿Eliminar este certificado médico? Esta acción no se puede deshacer.")) return;
-    await api.certificates.remove(id);
+    const reason = askVoidReason();
+    if (reason === null) return;
+    if (reason.length < 5) return alert("Escribe un motivo de al menos 5 caracteres.");
+    await api.certificates.remove(id, reason);
     load();
   }
 
@@ -481,12 +497,16 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                       )}
                       {c.plan && <div className="history-field"><strong>P:</strong> {c.plan}</div>}
                       <div className="visit-item-actions">
-                        <button type="button" className="link-btn" onClick={() => startEditNote(c)}>
+                        <button type="button" className="link-btn" onClick={() => startEditNote(c)} disabled={c.status && c.status !== "emitido"}>
                           Editar
                         </button>
-                        <button type="button" className="link-btn link-btn-danger" onClick={() => handleDeleteNote(c.id)}>
-                          Eliminar
-                        </button>
+                        {(!c.status || c.status === "emitido") && (
+                          <button type="button" className="link-btn link-btn-danger" onClick={() => handleDeleteNote(c.id)}>
+                            Anular
+                          </button>
+                        )}
+                        {c.status === "anulado" && <span className="hint">Anulada{c.void_reason ? `: ${c.void_reason}` : ""}</span>}
+                        {c.status === "corregido" && <span className="hint">Reemplazada por una corrección posterior</span>}
                       </div>
                     </div>
                   ))}
@@ -494,18 +514,22 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                   {v.rx.map((rx) => (
                     <div key={`rx-${rx.id}`} className="folder-card history-card visit-item">
                       <div className="modal-tab" style={{ background: v.isLatest ? "#6d28d9" : "#5B6B5F" }} />
-                      <div className="history-date">{formatDateTime(rx.created_at)} · Receta</div>
+                      <div className="history-date">{formatDateTime(rx.created_at)} · Receta{rx.status && rx.status !== "emitido" ? ` (${rx.status === "anulado" ? "anulada" : "reemplazada"})` : ""}</div>
                       <div className="history-field">{rx.items.map((it) => it.generic_name).join(", ")}</div>
                       <div className="visit-item-actions">
                         <a className="link-btn" href={api.prescriptions.pdfUrl(rx.id)} target="_blank" rel="noreferrer">
                           Ver PDF
                         </a>
-                        <button type="button" className="link-btn" onClick={() => setEditingRx(rx)}>
-                          Editar
-                        </button>
-                        <button type="button" className="link-btn link-btn-danger" onClick={() => handleDeleteRx(rx.id)}>
-                          Eliminar
-                        </button>
+                        {(!rx.status || rx.status === "emitido") && (
+                          <>
+                            <button type="button" className="link-btn" onClick={() => setEditingRx(rx)}>
+                              Editar
+                            </button>
+                            <button type="button" className="link-btn link-btn-danger" onClick={() => handleDeleteRx(rx.id)}>
+                              Anular
+                            </button>
+                          </>
+                        )}
                       </div>
                       <div className="visit-item-actions">
                         <button
@@ -531,7 +555,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                   {v.certs.map((cert) => (
                     <div key={`cert-${cert.id}`} className="folder-card history-card visit-item">
                       <div className="modal-tab" style={{ background: v.isLatest ? "#6d28d9" : "#2B5C8A" }} />
-                      <div className="history-date">{formatDateTime(cert.created_at)} · Certificado médico</div>
+                      <div className="history-date">{formatDateTime(cert.created_at)} · Certificado médico{cert.status && cert.status !== "emitido" ? ` (${cert.status === "anulado" ? "anulado" : "reemplazado"})` : ""}</div>
                       <div className="history-dx">
                         {CERT_TYPE_LABELS[cert.certificate_type] || cert.certificate_type}
                         {cert.diagnosis_label ? ` — ${cert.diagnosis_label}` : ""}
@@ -543,12 +567,16 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                         <a className="link-btn" href={api.certificates.pdfUrl(cert.id)} target="_blank" rel="noreferrer">
                           Ver PDF
                         </a>
-                        <button type="button" className="link-btn" onClick={() => setEditingCert(cert)}>
-                          Editar
-                        </button>
-                        <button type="button" className="link-btn link-btn-danger" onClick={() => handleDeleteCert(cert.id)}>
-                          Eliminar
-                        </button>
+                        {(!cert.status || cert.status === "emitido") && (
+                          <>
+                            <button type="button" className="link-btn" onClick={() => setEditingCert(cert)}>
+                              Editar
+                            </button>
+                            <button type="button" className="link-btn link-btn-danger" onClick={() => handleDeleteCert(cert.id)}>
+                              Anular
+                            </button>
+                          </>
+                        )}
                       </div>
                       <div className="visit-item-actions">
                         <button

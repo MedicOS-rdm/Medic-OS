@@ -1,12 +1,17 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db, logAudit } from "../db.js";
-import { signToken, requireAuth } from "../auth.js";
+import { signToken, requireAuth, setAuthCookie, clearAuthCookie } from "../auth.js";
+import { loginRateLimit } from "../rateLimiter.js";
+import { passwordPolicyError } from "../passwordPolicy.js";
 
 export const authRouter = Router();
 
 // POST /api/auth/login
-authRouter.post("/login", async (req, res) => {
+// Con límite de intentos (A-04: no había ninguna defensa contra fuerza
+// bruta) y sin revelar si el problema fue el usuario o la contraseña,
+// para no ayudar a un atacante a enumerar usuarios válidos.
+authRouter.post("/login", loginRateLimit, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: "username y password son obligatorios" });
 
@@ -31,7 +36,20 @@ authRouter.post("/login", async (req, res) => {
     clinic_name: row.clinic_name,
   };
   await logAudit({ clinicId: user.clinic_id, actor: user.username, action: "login", entity: "user", entityId: user.id });
-  res.json({ token: signToken(user), user });
+
+  const token = signToken(user);
+  // La sesión del navegador vive en una cookie httpOnly (A-01/A-02); el
+  // token también se regresa en el cuerpo por si algún cliente no basado
+  // en navegador (scripts, integraciones futuras) necesita usarlo como
+  // Authorization: Bearer en vez de cookie.
+  setAuthCookie(res, token);
+  res.json({ token, user });
+});
+
+// POST /api/auth/logout -> borra la cookie de sesión del navegador.
+authRouter.post("/logout", (req, res) => {
+  clearAuthCookie(res);
+  res.json({ ok: true });
 });
 
 // GET /api/auth/me -> valida el token y regresa el usuario actual
@@ -48,9 +66,8 @@ authRouter.post("/change-password", requireAuth, async (req, res) => {
   if (!current_password || !new_password) {
     return res.status(400).json({ error: "current_password y new_password son obligatorios" });
   }
-  if (new_password.length < 6) {
-    return res.status(400).json({ error: "La nueva contraseña debe tener al menos 6 caracteres" });
-  }
+  const policyError = passwordPolicyError(new_password);
+  if (policyError) return res.status(400).json({ error: policyError });
 
   const row = await db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.user.id);
   if (!row || !bcrypt.compareSync(current_password, row.password_hash)) {

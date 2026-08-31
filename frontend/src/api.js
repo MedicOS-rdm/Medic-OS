@@ -1,32 +1,26 @@
 const BASE = "/api";
-const TOKEN_KEY = "ece_agenda_token";
 
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
-}
-export function setToken(token) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-}
-
-// Se dispara cuando el backend responde 401 (sesión inválida/expirada) para
-// que App.jsx pueda regresar a la pantalla de login.
+// A-01/A-02 de la auditoría: el token de sesión ya NO vive en
+// localStorage ni se manda por query string — vive en una cookie httpOnly
+// que el navegador adjunta solo, y que JavaScript no puede leer ni robar
+// vía un XSS. `credentials: "same-origin"` (el default de fetch, aquí
+// explícito) es lo que hace que esa cookie viaje en cada petición; no hay
+// nada más que gestionar desde el frontend.
 let onUnauthorized = () => {};
 export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn;
 }
 
 async function request(path, options = {}) {
-  const token = getToken();
   const res = await fetch(`${BASE}${path}`, {
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
     },
     ...options,
   });
   if (res.status === 401) {
-    setToken(null);
     onUnauthorized();
   }
   if (!res.ok) {
@@ -42,6 +36,7 @@ async function request(path, options = {}) {
 export const api = {
   auth: {
     login: (data) => request(`/auth/login`, { method: "POST", body: JSON.stringify(data) }),
+    logout: () => request(`/auth/logout`, { method: "POST" }),
     me: () => request(`/auth/me`),
     changePassword: (data) => request(`/auth/change-password`, { method: "POST", body: JSON.stringify(data) }),
   },
@@ -70,7 +65,8 @@ export const api = {
     listByPatient: (patientId) => request(`/patients/${patientId}/consultations`),
     create: (data) => request(`/consultations`, { method: "POST", body: JSON.stringify(data) }),
     update: (id, data) => request(`/consultations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    remove: (id) => request(`/consultations/${id}`, { method: "DELETE" }),
+    // Ya no borra: anula (requiere motivo) — ver C-04 de la auditoría.
+    remove: (id, reason) => request(`/consultations/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) }),
   },
   cie11: {
     search: (q) => request(`/cie11?q=${encodeURIComponent(q)}`),
@@ -89,18 +85,27 @@ export const api = {
     get: (id) => request(`/prescriptions/${id}`),
     create: (data) => request(`/prescriptions`, { method: "POST", body: JSON.stringify(data) }),
     update: (id, data) => request(`/prescriptions/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    remove: (id) => request(`/prescriptions/${id}`, { method: "DELETE" }),
+    // Ya no borra: anula (requiere motivo) — ver C-04 de la auditoría.
+    remove: (id, reason) => request(`/prescriptions/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) }),
     send: (id, channel) => request(`/prescriptions/${id}/send`, { method: "POST", body: JSON.stringify({ channel }) }),
-    pdfUrl: (id) => `${BASE}/prescriptions/${id}/pdf?token=${encodeURIComponent(getToken() || "")}`,
+    // Ya no lleva ?token= (A-02): la cookie httpOnly de sesión viaja sola
+    // en la navegación normal (abrir en pestaña nueva / <a href>), sin
+    // exponer el token de sesión en la URL, historial o logs.
+    pdfUrl: (id) => `${BASE}/prescriptions/${id}/pdf`,
+    shareRevoke: (id) => request(`/prescriptions/${id}/share/revoke`, { method: "POST" }),
+    shareRotate: (id) => request(`/prescriptions/${id}/share/rotate`, { method: "POST" }),
   },
   certificates: {
     listByPatient: (patientId) => request(`/certificates/patient/${patientId}`),
     get: (id) => request(`/certificates/${id}`),
     create: (data) => request(`/certificates`, { method: "POST", body: JSON.stringify(data) }),
     update: (id, data) => request(`/certificates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    remove: (id) => request(`/certificates/${id}`, { method: "DELETE" }),
+    // Ya no borra: anula (requiere motivo) — ver C-04 de la auditoría.
+    remove: (id, reason) => request(`/certificates/${id}`, { method: "DELETE", body: JSON.stringify({ reason }) }),
     send: (id, channel) => request(`/certificates/${id}/send`, { method: "POST", body: JSON.stringify({ channel }) }),
-    pdfUrl: (id) => `${BASE}/certificates/${id}/pdf?token=${encodeURIComponent(getToken() || "")}`,
+    pdfUrl: (id) => `${BASE}/certificates/${id}/pdf`,
+    shareRevoke: (id) => request(`/certificates/${id}/share/revoke`, { method: "POST" }),
+    shareRotate: (id) => request(`/certificates/${id}/share/rotate`, { method: "POST" }),
   },
   reminders: {
     getSettings: () => request(`/reminder-settings`),

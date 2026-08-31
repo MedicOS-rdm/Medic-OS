@@ -1,6 +1,8 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db, logAudit, suggestAvailableUsername } from "../db.js";
+import { timingSafeEqualString } from "../auth.js";
+import { passwordPolicyError } from "../passwordPolicy.js";
 
 export const adminRouter = Router();
 
@@ -9,12 +11,21 @@ export const adminRouter = Router();
 // secreto separado (variable de entorno ADMIN_SECRET) que solo tú conoces.
 // Deliberadamente NO hay registro público: cada clínica nueva la crea el
 // administrador a mano, tal como se definió.
+//
+// A-05 de la auditoría: este secreto único y global sigue siendo un punto
+// único de fallo si se filtra (la corrección completa —cuentas
+// administrativas individuales con MFA— es un cambio de producto más
+// grande que queda fuera de este parche). Lo que sí se corrige aquí: la
+// comparación ahora es en tiempo constante (antes un simple `!==` podía,
+// en teoría, filtrar por timing cuánto del secreto coincide), y la ruta
+// completa quedó detrás de rate limiting (ver server.js) para frenar
+// intentos de fuerza bruta contra el secreto.
 function requireAdminSecret(req, res, next) {
   if (!process.env.ADMIN_SECRET) {
     return res.status(500).json({ error: "ADMIN_SECRET no está configurado en el servidor (variable de entorno)." });
   }
   const provided = req.headers["x-admin-secret"];
-  if (!provided || provided !== process.env.ADMIN_SECRET) {
+  if (!provided || !timingSafeEqualString(provided, process.env.ADMIN_SECRET)) {
     return res.status(401).json({ error: "Secreto de administrador inválido" });
   }
   next();
@@ -56,7 +67,8 @@ adminRouter.post("/clinics/:id/reset-password", async (req, res) => {
   if (!doctor) return res.status(404).json({ error: "No se encontró la cuenta de médico de esta clínica" });
 
   const { password } = req.body;
-  const newPassword = password && password.length >= 6 ? password : Math.random().toString(36).slice(-8);
+  const policyError = password ? passwordPolicyError(password) : null;
+  const newPassword = password && !policyError ? password : Math.random().toString(36).slice(-8) + "A1"; // fallback ya cumple longitud/mezcla
   const password_hash = bcrypt.hashSync(newPassword, 10);
 
   await db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(password_hash, doctor.id);
@@ -107,9 +119,8 @@ adminRouter.post("/clinics", async (req, res) => {
   if (!clinic_name || !username || !password || !full_name) {
     return res.status(400).json({ error: "clinic_name, username, password y full_name son obligatorios" });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
-  }
+  const policyError = passwordPolicyError(password);
+  if (policyError) return res.status(400).json({ error: policyError });
 
   const existing = await db.prepare(`SELECT id FROM users WHERE username = ?`).get(username.trim().toLowerCase());
   if (existing) {

@@ -27,6 +27,16 @@ const TYPE_LABELS = {
   teletrabajo: "Teletrabajo",
 };
 
+// Cuánto dura vigente el enlace público (WhatsApp) antes de expirar solo
+// (C-03) — se puede además revocar manualmente en cualquier momento antes
+// desde la ficha del paciente.
+const SHARE_LINK_VALID_DAYS = 30;
+function newShareExpiry() {
+  return new Date(Date.now() + SHARE_LINK_VALID_DAYS * 24 * 60 * 60 * 1000).toISOString();
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 async function getDoctorProfile(clinicId) {
   return (
     (await db.prepare(`SELECT * FROM doctor_profile WHERE clinic_id = ?`).get(clinicId)) || {
@@ -81,6 +91,9 @@ certificatesRouter.post("/", async (req, res) => {
 
   if (!patient_id) return res.status(400).json({ error: "patient_id es obligatorio" });
   if (!date_from || !date_to) return res.status(400).json({ error: "date_from y date_to son obligatorios" });
+  if (!ISO_DATE_RE.test(date_from) || !ISO_DATE_RE.test(date_to)) {
+    return res.status(400).json({ error: "date_from y date_to deben tener formato AAAA-MM-DD" });
+  }
   if (!TYPE_LABELS[certificate_type]) {
     return res.status(400).json({ error: "certificate_type debe ser enfermedad, aislamiento o teletrabajo" });
   }
@@ -88,14 +101,29 @@ certificatesRouter.post("/", async (req, res) => {
   const patient = await db.prepare(`SELECT * FROM patients WHERE id = ? AND clinic_id = ?`).get(patient_id, req.user.clinic_id);
   if (!patient) return res.status(400).json({ error: "El paciente no existe" });
 
+  // A-08 de la auditoría: si el certificado se genera desde una consulta
+  // puntual, esa consulta debe pertenecer al MISMO paciente — si no, algo
+  // en el frontend está mal armado (o alguien manipuló la petición) y
+  // terminaríamos anotando el certificado sobre la consulta de otra
+  // persona.
+  if (consultation_id) {
+    const consultation = await db
+      .prepare(`SELECT id FROM consultations WHERE id = ? AND patient_id = ? AND clinic_id = ?`)
+      .get(consultation_id, patient_id, req.user.clinic_id);
+    if (!consultation) {
+      return res.status(400).json({ error: "consultation_id no corresponde a este paciente" });
+    }
+  }
+
   const autoDays = daysBetweenInclusive(date_from, date_to);
   const finalDays = days_granted ?? autoDays;
-  if (!finalDays || finalDays < 1) {
+  if (!finalDays || finalDays < 1 || finalDays > 365) {
     return res.status(400).json({ error: "El rango de fechas o los días concedidos no son válidos" });
   }
 
   const doctor = await getDoctorProfile(req.user.clinic_id);
   const share_token = newQrToken();
+  const share_expires_at = newShareExpiry();
 
   const result = await db
     .prepare(
@@ -106,8 +134,8 @@ certificatesRouter.post("/", async (req, res) => {
          patient_full_name, patient_address, patient_phone, patient_email,
          patient_institution, patient_job_title, patient_id_number, patient_clinical_history_number,
          doctor_name, doctor_personal_id, doctor_license, doctor_specialty, doctor_email,
-         clinic_name, clinic_address, clinic_phone, issue_place, share_token)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         clinic_name, clinic_address, clinic_phone, issue_place, share_token, share_expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       req.user.clinic_id,
@@ -139,7 +167,8 @@ certificatesRouter.post("/", async (req, res) => {
       doctor.clinic_address,
       doctor.clinic_phone,
       doctor.city,
-      share_token
+      share_token,
+      share_expires_at
     );
 
   await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "certificate", entityId: result.lastInsertRowid });
@@ -175,9 +204,25 @@ certificatesRouter.get("/:id", async (req, res) => {
   res.json(cert);
 });
 
+// PUT /api/certificates/:id -> C-04 de la auditoría: antes esta ruta
+// SOBRESCRIBÍA el certificado original en su lugar. Un documento
+// médico-legal ya entregado/firmado no debería poder reescribirse en
+// silencio (ni por error ni con mala intención: nada quedaba de la
+// versión original que el paciente ya podría tener en su poder). Ahora
+// "editar" crea una fila NUEVA con los cambios (una corrección) y el
+// documento original se conserva intacto, solo marcado como
+// "corregido" con un enlace hacia la versión vigente. La respuesta del
+// PDF de la versión vieja seguirá funcionando (para que quien ya la tenía
+// pueda verificar que fue reemplazada), pero con un aviso visible.
 certificatesRouter.put("/:id", async (req, res) => {
   const existing = await db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Certificado no encontrado" });
+  if (existing.status === "anulado") {
+    return res.status(409).json({ error: "Este certificado fue anulado y no se puede corregir. Emite uno nuevo." });
+  }
+  if (existing.status === "corregido") {
+    return res.status(409).json({ error: "Este certificado ya fue reemplazado por una corrección posterior." });
+  }
 
   const {
     diagnosis_code,
@@ -192,25 +237,41 @@ certificatesRouter.put("/:id", async (req, res) => {
   } = req.body;
 
   if (!date_from || !date_to) return res.status(400).json({ error: "date_from y date_to son obligatorios" });
+  if (!ISO_DATE_RE.test(date_from) || !ISO_DATE_RE.test(date_to)) {
+    return res.status(400).json({ error: "date_from y date_to deben tener formato AAAA-MM-DD" });
+  }
   if (!TYPE_LABELS[certificate_type]) {
     return res.status(400).json({ error: "certificate_type debe ser enfermedad, aislamiento o teletrabajo" });
   }
 
   const autoDays = daysBetweenInclusive(date_from, date_to);
   const finalDays = days_granted ?? autoDays;
-  if (!finalDays || finalDays < 1) {
+  if (!finalDays || finalDays < 1 || finalDays > 365) {
     return res.status(400).json({ error: "El rango de fechas o los días concedidos no son válidos" });
   }
 
-  await db
+  // La corrección hereda el snapshot de paciente/médico/clínica del
+  // original (esos datos no cambiaron, solo el motivo/fechas), y recibe
+  // su propio share_token con caducidad propia.
+  const share_token = newQrToken();
+  const share_expires_at = newShareExpiry();
+  const result = await db
     .prepare(
-      `UPDATE certificates SET
-        diagnosis_code = ?, diagnosis_label = ?, clinical_picture = ?, presents_symptoms = ?,
-        certificate_type = ?, description = ?, days_granted = ?, date_from = ?, date_to = ?,
-        updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
-       WHERE id = ?`
+      `INSERT INTO certificates
+        (clinic_id, patient_id, consultation_id,
+         diagnosis_code, diagnosis_label, clinical_picture, presents_symptoms, certificate_type,
+         description, days_granted, date_from, date_to,
+         patient_full_name, patient_address, patient_phone, patient_email,
+         patient_institution, patient_job_title, patient_id_number, patient_clinical_history_number,
+         doctor_name, doctor_personal_id, doctor_license, doctor_specialty, doctor_email,
+         clinic_name, clinic_address, clinic_phone, issue_place, share_token, share_expires_at,
+         corrected_from_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
+      existing.clinic_id,
+      existing.patient_id,
+      existing.consultation_id,
       diagnosis_code ?? null,
       diagnosis_label ?? null,
       clinical_picture ?? null,
@@ -220,21 +281,106 @@ certificatesRouter.put("/:id", async (req, res) => {
       finalDays,
       date_from,
       date_to,
-      req.params.id
+      existing.patient_full_name,
+      existing.patient_address,
+      existing.patient_phone,
+      existing.patient_email,
+      existing.patient_institution,
+      existing.patient_job_title,
+      existing.patient_id_number,
+      existing.patient_clinical_history_number,
+      existing.doctor_name,
+      existing.doctor_personal_id,
+      existing.doctor_license,
+      existing.doctor_specialty,
+      existing.doctor_email,
+      existing.clinic_name,
+      existing.clinic_address,
+      existing.clinic_phone,
+      existing.issue_place,
+      share_token,
+      share_expires_at,
+      existing.id
     );
 
-  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "update", entity: "certificate", entityId: req.params.id });
-  res.json(await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(req.params.id));
+  await db
+    .prepare(
+      `UPDATE certificates SET status = 'corregido', superseded_by_id = ?,
+        updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+       WHERE id = ?`
+    )
+    .run(result.lastInsertRowid, existing.id);
+
+  await logAudit({
+    clinicId: req.user.clinic_id,
+    actor: req.user.username,
+    action: "correct",
+    entity: "certificate",
+    entityId: existing.id,
+    detail: { new_id: result.lastInsertRowid },
+  });
+
+  res.json(await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(result.lastInsertRowid));
 });
 
-// DELETE /api/certificates/:id -> borra un certificado emitido por error
+// DELETE /api/certificates/:id -> C-04: ya no borra la fila. Un
+// certificado emitido por error se ANULA (requiere motivo), pero queda en
+// la base para el historial médico-legal — igual que anular una factura
+// en vez de destruirla. El enlace público deja de servir el PDF de
+// inmediato (ver share.js).
 certificatesRouter.delete("/:id", async (req, res) => {
   const existing = await db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Certificado no encontrado" });
+  if (existing.status === "anulado") return res.status(409).json({ error: "Este certificado ya estaba anulado" });
 
-  await db.prepare(`DELETE FROM certificates WHERE id = ?`).run(req.params.id);
-  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "delete", entity: "certificate", entityId: req.params.id });
+  const reason = String(req.body?.reason || "").trim();
+  if (reason.length < 5) {
+    return res.status(400).json({ error: "Indica el motivo de la anulación (mínimo 5 caracteres)" });
+  }
+
+  await db
+    .prepare(
+      `UPDATE certificates SET status = 'anulado', void_reason = ?, voided_by = ?, share_revoked = 1,
+        voided_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+       WHERE id = ?`
+    )
+    .run(reason, req.user.username, req.params.id);
+
+  await logAudit({
+    clinicId: req.user.clinic_id,
+    actor: req.user.username,
+    action: "void",
+    entity: "certificate",
+    entityId: req.params.id,
+    detail: { reason },
+  });
+  res.json(await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(req.params.id));
+});
+
+// POST /api/certificates/:id/share/revoke -> apaga el enlace público
+// (WhatsApp) inmediatamente, sin esperar a que caduque solo (C-03).
+certificatesRouter.post("/:id/share/revoke", async (req, res) => {
+  const existing = await db.prepare(`SELECT id FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Certificado no encontrado" });
+  await db.prepare(`UPDATE certificates SET share_revoked = 1 WHERE id = ?`).run(req.params.id);
+  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "share_revoke", entity: "certificate", entityId: req.params.id });
   res.json({ ok: true });
+});
+
+// POST /api/certificates/:id/share/rotate -> invalida el enlace anterior y
+// genera uno nuevo con caducidad fresca (por si el anterior se compartió
+// de más y se quiere seguir compartiendo el documento con un enlace
+// limpio).
+certificatesRouter.post("/:id/share/rotate", async (req, res) => {
+  const existing = await db.prepare(`SELECT id FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Certificado no encontrado" });
+  const share_token = newQrToken();
+  const share_expires_at = newShareExpiry();
+  await db
+    .prepare(`UPDATE certificates SET share_token = ?, share_expires_at = ?, share_revoked = 0 WHERE id = ?`)
+    .run(share_token, share_expires_at, req.params.id);
+  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "share_rotate", entity: "certificate", entityId: req.params.id });
+  res.json({ share_token, share_expires_at });
 });
 
 // Prepara los datos de un certificado listos para dibujar el PDF: se usa
@@ -314,6 +460,19 @@ export function renderCertificatePdf(cert, logoBuffer, writable) {
     doc.opacity(1);
   }
 
+  // Aviso de estado (C-04/A-09): si esta versión del documento ya fue
+  // reemplazada por una corrección o fue anulada, se marca de forma bien
+  // visible — así nadie confunde una versión vieja con la vigente.
+  if (cert.status === "anulado" || cert.status === "corregido") {
+    const label = cert.status === "anulado" ? "ANULADO" : "REEMPLAZADO POR CORRECCIÓN";
+    doc.save();
+    doc.rotate(-30, { origin: [doc.page.width / 2, doc.page.height / 2] });
+    doc.font("Helvetica-Bold").fontSize(58).fillColor("#c0392b").opacity(0.22);
+    doc.text(label, 0, doc.page.height / 2 - 30, { width: doc.page.width, align: "center" });
+    doc.opacity(1);
+    doc.restore();
+  }
+
   const margin = doc.page.margins.left;
   const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
@@ -373,6 +532,19 @@ export function renderCertificatePdf(cert, logoBuffer, writable) {
 
   doc.x = margin; // volvemos al margen izquierdo normal para el resto del documento
   doc.y = headerTop + logoSize + 4 + 12; // nunca empezar antes de que termine el bloque de logo + nombre
+
+  // Folio + estado del documento (mejora menor de trazabilidad sugerida
+  // en la auditoría junto con el versionado: quien reciba el PDF puede
+  // confirmar con el consultorio a qué folio corresponde).
+  const statusLabel = { emitido: "Emitido", corregido: "Corregido (reemplazado)", anulado: "Anulado" }[cert.status] || "Emitido";
+  doc.font("Helvetica").fontSize(7.5).fillColor("#777").text(`Folio N° ${cert.id} · Estado: ${statusLabel}`, margin, doc.y, { width: contentWidth, align: "right" });
+  if (cert.status === "anulado" && cert.void_reason) {
+    doc.font("Helvetica-Oblique").fontSize(7.5).fillColor("#c0392b").text(`Motivo de anulación: ${cert.void_reason}`, margin, doc.y, { width: contentWidth, align: "right" });
+  }
+  if (cert.status === "corregido" && cert.superseded_by_id) {
+    doc.font("Helvetica-Oblique").fontSize(7.5).fillColor("#c0392b").text(`Ver versión vigente: folio N° ${cert.superseded_by_id}`, margin, doc.y, { width: contentWidth, align: "right" });
+  }
+  doc.moveDown(0.3);
 
   sectionTitle("A) DATOS DEL ESTABLECIMIENTO DE SALUD");
   row("Nombre del establecimiento:", cert.clinic_name);

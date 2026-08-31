@@ -22,6 +22,33 @@ function loadOrCreateSecret() {
 
 const JWT_SECRET = loadOrCreateSecret();
 
+// ---------- Sesión vía cookie httpOnly (A-01, A-02) ----------
+// Antes, el frontend guardaba el JWT en localStorage y lo mandaba también
+// por query string (?token=...) para los enlaces de PDF — ambas cosas
+// hacían que un XSS, el historial del navegador, logs de proxy o el header
+// Referer pudieran filtrar una sesión completa de 12 horas. Ahora el JWT
+// vive en una cookie httpOnly (JavaScript en el navegador no puede leerla,
+// así que un XSS ya no puede robarla) y el backend deja de aceptar el
+// token por query string por completo. SameSite=Lax además evita que un
+// sitio externo pueda usar la cookie para disparar acciones de escritura
+// (POST/PUT/DELETE) contra esta API.
+export const AUTH_COOKIE_NAME = "medicos_session";
+const COOKIE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // igual que expiresIn del JWT
+
+export function setAuthCookie(res, token) {
+  res.cookie(AUTH_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: COOKIE_MAX_AGE_MS,
+  });
+}
+
+export function clearAuthCookie(res) {
+  res.clearCookie(AUTH_COOKIE_NAME, { path: "/" });
+}
+
 export function signToken(user) {
   return jwt.sign(
     {
@@ -39,7 +66,12 @@ export function signToken(user) {
 
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : req.query.token || null;
+  // Orden: cookie httpOnly (uso normal desde el navegador) primero, luego
+  // Authorization: Bearer (para scripts/integraciones que no manejan
+  // cookies). YA NO se acepta el token por query string bajo ninguna
+  // circunstancia — quedaba expuesto en historial, logs de acceso y
+  // encabezado Referer.
+  const token = (req.cookies && req.cookies[AUTH_COOKIE_NAME]) || (header.startsWith("Bearer ") ? header.slice(7) : null);
   if (!token) return res.status(401).json({ error: "No autenticado" });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
@@ -58,3 +90,19 @@ export function requireRole(...roles) {
     next();
   };
 }
+
+// Comparación en tiempo constante para secretos (ADMIN_SECRET, tokens de
+// documento) — evita que una diferencia de tiempo entre intentos permita
+// adivinar el secreto carácter por carácter (A-05).
+export function timingSafeEqualString(a, b) {
+  const bufA = Buffer.from(String(a ?? ""));
+  const bufB = Buffer.from(String(b ?? ""));
+  if (bufA.length !== bufB.length) {
+    // Igual se ejecuta una comparación de longitud fija para no filtrar
+    // por timing si las longitudes difieren.
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+

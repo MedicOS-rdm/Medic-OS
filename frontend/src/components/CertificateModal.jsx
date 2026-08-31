@@ -79,8 +79,11 @@ export default function CertificateModal({
     };
     try {
       if (isEdit) {
-        await api.certificates.update(existing.id, payload);
-        setDoneId(existing.id);
+        // C-04: editar ahora crea una CORRECCIÓN (una fila nueva); el
+        // servidor regresa esa fila nueva, con su propio id — ya no se
+        // puede asumir que el certificado editado conserva el id original.
+        const updated = await api.certificates.update(existing.id, payload);
+        setDoneId(updated.id);
       } else {
         const cert = await api.certificates.create({ patient_id: patientId, consultation_id: consultationId ?? null, ...payload });
         setDoneId(cert.id);

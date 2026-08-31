@@ -449,6 +449,23 @@ textarea {
   text-decoration: underline;
 }
 
+.app-loading {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+}
+.app-loading img {
+  width: 48px;
+  height: 48px;
+  animation: app-loading-pulse 1.2s ease-in-out infinite;
+}
+@keyframes app-loading-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
 .form-error {
   color: var(--allergy);
   font-size: 0.85rem;

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { requireRole } from "../auth.js";
+import { webhookRateLimit } from "../rateLimiter.js";
 import { getSettings, sendReminderForAppointment } from "../reminders.js";
 
 export const remindersRouter = Router();   // rutas protegidas (sesión)
@@ -69,27 +70,68 @@ remindersRouter.post("/appointments/:id/send-reminder", async (req, res) => {
 });
 
 // ---------- Webhook público (lo llama Twilio, sin sesión) ----------
-remindersWebhookRouter.post("/webhook", async (req, res) => {
+//
+// C-02 de la auditoría: este endpoint no verificaba que la petición
+// realmente viniera de Twilio — cualquiera que conociera la URL podía
+// simular respuestas "1"/"2" y confirmar o CANCELAR citas ajenas. Ahora se
+// valida la cabecera X-Twilio-Signature con el auth token de la clínica
+// correspondiente (según validateRequest de Twilio: HMAC-SHA1 sobre la URL
+// completa + los parámetros del POST, exactamente el mismo algoritmo que
+// usa Twilio para firmar). Si no coincide, se rechaza con 403 antes de
+// tocar cualquier dato.
+//
+// De paso corrijo otro problema encontrado al revisar esta ruta: cuando no
+// se lograba identificar la clínica por el número "To", el código buscaba
+// el paciente por teléfono EN TODAS las clínicas (sin filtrar por
+// clinic_id) — en una plataforma multi-clínica, dos consultorios distintos
+// podrían tener pacientes con el mismo número o uno parecido, y esa
+// consulta global podía terminar confirmando/cancelando la cita de la
+// clínica equivocada. Ahora, si no se puede determinar la clínica de forma
+// inequívoca, el webhook responde sin identificar ninguna cita — nunca
+// busca "a ciegas" entre clínicas.
+remindersWebhookRouter.post("/webhook", webhookRateLimit, async (req, res) => {
   const from = String(req.body.From || "").replace("whatsapp:", "");
   const to = String(req.body.To || "").replace("whatsapp:", "");
   const body = String(req.body.Body || "").trim();
   const digits = from.replace(/\D/g, "").slice(-10);
 
   let clinicId = null;
+  let settings = null;
   if (to) {
-    const settings = await db.prepare(`SELECT clinic_id FROM reminder_settings WHERE twilio_from_number = ?`).get(to);
+    settings = await db.prepare(`SELECT * FROM reminder_settings WHERE twilio_from_number = ?`).get(to);
     if (settings) clinicId = settings.clinic_id;
   }
 
-  const patientQuery = clinicId
-    ? await db
-        .prepare(
-          `SELECT id, clinic_id FROM patients WHERE clinic_id = ? AND REPLACE(REPLACE(REPLACE(phone,'-',''),' ',''),'+','') LIKE ?`
-        )
-        .get(clinicId, `%${digits}`)
-    : await db
-        .prepare(`SELECT id, clinic_id FROM patients WHERE REPLACE(REPLACE(REPLACE(phone,'-',''),' ',''),'+','') LIKE ?`)
-        .get(`%${digits}`);
+  // Sin clínica identificada no hay auth token con qué validar la firma,
+  // y tampoco hay forma segura de buscar el paciente sin salirse del
+  // límite de esa clínica — se corta aquí.
+  if (!clinicId || !settings?.twilio_auth_token) {
+    console.warn(`[reminders-webhook] No se pudo determinar la clínica para To="${to}"; petición rechazada.`);
+    return res.status(403).type("text/xml").send(`<Response></Response>`);
+  }
+
+  const signature = req.headers["x-twilio-signature"];
+  const fullUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  let signatureValid = false;
+  try {
+    const { default: twilio } = await import("twilio");
+    signatureValid = Boolean(
+      signature && twilio.validateRequest(settings.twilio_auth_token, signature, fullUrl, req.body)
+    );
+  } catch (err) {
+    console.error("[reminders-webhook] Error validando firma de Twilio:", err.message);
+  }
+
+  if (!signatureValid) {
+    console.warn(`[reminders-webhook] Firma inválida o ausente para clinic_id=${clinicId}; petición rechazada.`);
+    return res.status(403).type("text/xml").send(`<Response></Response>`);
+  }
+
+  const patientQuery = await db
+    .prepare(
+      `SELECT id, clinic_id FROM patients WHERE clinic_id = ? AND REPLACE(REPLACE(REPLACE(phone,'-',''),' ',''),'+','') LIKE ?`
+    )
+    .get(clinicId, `%${digits}`);
 
   let replyText = "No pudimos identificar tu cita. Por favor comunícate al consultorio.";
 

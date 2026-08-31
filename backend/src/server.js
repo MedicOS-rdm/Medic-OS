@@ -7,6 +7,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { initDb } from "./db.js";
 import { requireAuth, requireRole } from "./auth.js";
+import { adminRateLimit } from "./rateLimiter.js";
 import { authRouter } from "./routes/auth.js";
 import { adminRouter } from "./routes/admin.js";
 import { verifyRouter } from "./routes/verify.js";
@@ -27,12 +28,65 @@ import { checkAndSendDueReminders } from "./reminders.js";
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+// Render (y la mayoría de PaaS) terminan TLS en un proxy y reenvían la
+// petición por HTTP interno agregando X-Forwarded-*. Sin esto, req.protocol
+// siempre da "http" y req.ip da la IP del proxy en vez de la del cliente
+// real — lo primero rompe la validación de firma de Twilio (que firma la
+// URL https:// pública) y lo segundo inutiliza el rate limiting por IP.
+app.set("trust proxy", 1);
+
+// CORS restringido en vez del wildcard por defecto (M-07): el frontend
+// siempre se sirve desde el MISMO origen que la API (un solo servicio en
+// producción; el proxy de Vite en desarrollo), así que no hace falta
+// permitir orígenes cruzados para que la app funcione. Si se define
+// FRONTEND_ORIGIN (por si algún día el frontend vive en otro dominio), se
+// permite ese origen puntual con credenciales; si no, no se habilita CORS
+// de navegador para /api en absoluto (llamadas desde otros sitios web
+// quedan bloqueadas por el navegador; clientes no-navegador como Twilio o
+// scripts propios no se ven afectados, CORS solo lo aplican los navegadores).
+const allowedOrigin = process.env.FRONTEND_ORIGIN || null;
+if (allowedOrigin) {
+  app.use(cors({ origin: allowedOrigin, credentials: true }));
+}
+
 // Límite elevado (por defecto Express solo permite 100 KB) para poder
 // subir el logo del consultorio como base64 dentro del JSON — el propio
 // endpoint de logo valida además que el archivo original no pase de 2 MB.
 app.use(express.json({ limit: "3mb" }));
 app.use(express.urlencoded({ extended: false })); // Twilio manda application/x-www-form-urlencoded
+
+// Parser mínimo de cookies (sin agregar el paquete cookie-parser): solo
+// necesitamos leer la cookie httpOnly de sesión (ver auth.js). Rellena
+// req.cookies como un objeto plano { nombre: valor }, igual que hace
+// cookie-parser para el caso sin firma.
+app.use((req, _res, next) => {
+  req.cookies = {};
+  const header = req.headers.cookie;
+  if (header) {
+    for (const part of header.split(";")) {
+      const idx = part.indexOf("=");
+      if (idx === -1) continue;
+      const name = part.slice(0, idx).trim();
+      const value = part.slice(idx + 1).trim();
+      if (name) req.cookies[name] = decodeURIComponent(value);
+    }
+  }
+  next();
+});
+
+// Cabeceras de seguridad básicas en todas las respuestas (mitigación
+// menor pero gratuita: X-Content-Type-Options, política de iframes, y un
+// CSP razonable para una app que ya no depende de scripts/estilos
+// inline de terceros).
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "same-origin");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+  }
+  next();
+});
 
 // Log simple de acceso (usuario si ya se autenticó, IP y ruta) — la
 // bitácora de auditoría fina por entidad vive en la tabla audit_log.
@@ -44,7 +98,7 @@ app.use((req, _res, next) => {
 // ---------- Rutas públicas (sin sesión de médico/secretaria) ----------
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
-app.use("/api/admin", adminRouter); // protegida por ADMIN_SECRET, no por login normal
+app.use("/api/admin", adminRateLimit, adminRouter); // protegida por ADMIN_SECRET (rate-limited), no por login normal
 app.use("/api/verify", verifyRouter); // lo escanea el QR de la receta
 app.use("/api/share", shareRouter); // PDF público de UNA receta/certificado (lo descarga WhatsApp)
 app.use("/api/reminders", remindersWebhookRouter); // lo llama Twilio (respuestas 1/2)

@@ -47,11 +47,13 @@ export default function PrescriptionModal({ patientId, consultationId, existing 
     setSaving(true);
     try {
       if (isEdit) {
-        await api.prescriptions.update(existing.id, {
+        // C-04: editar ahora crea una CORRECCIÓN (una fila nueva); usamos
+        // el id que regresa el servidor, no el de la receta original.
+        const updated = await api.prescriptions.update(existing.id, {
           items: items.map(({ key, ...rest }) => rest),
           instructions,
         });
-        setDoneId(existing.id);
+        setDoneId(updated.id);
       } else {
         const rx = await api.prescriptions.create({
           patient_id: patientId,

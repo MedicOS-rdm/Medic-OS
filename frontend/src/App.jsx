@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { api, getToken, setToken, setUnauthorizedHandler } from "./api.js";
+import { api, setUnauthorizedHandler } from "./api.js";
 import AgendaView from "./components/AgendaView.jsx";
 import PatientModal from "./components/PatientModal.jsx";
 import AppointmentModal from "./components/AppointmentModal.jsx";
@@ -38,12 +38,14 @@ export default function App() {
     setUnauthorizedHandler(() => setUser(null));
     (async () => {
       try {
-        if (getToken()) {
-          const { user: me } = await api.auth.me();
-          setUser(me);
-        }
+        // La sesión vive en una cookie httpOnly (A-01/A-02): JavaScript no
+        // puede leerla para saber de antemano si existe, así que siempre
+        // se intenta /auth/me; si no hay cookie válida, el backend
+        // responde 401 y simplemente se muestra el login.
+        const { user: me } = await api.auth.me();
+        setUser(me);
       } catch {
-        setToken(null);
+        setUser(null);
       } finally {
         setAuthLoading(false);
       }
@@ -51,7 +53,7 @@ export default function App() {
   }, []);
 
   function handleLogout() {
-    setToken(null);
+    api.auth.logout().catch(() => {});
     setUser(null);
   }
 
@@ -128,7 +130,13 @@ export default function App() {
     ? patients.filter((p) => `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase()))
     : patients;
 
-  if (authLoading) return null;
+  if (authLoading) {
+    return (
+      <div className="app-loading">
+        <img src="/assets/logo.png" alt="MedicOs" className="brand-mark" />
+      </div>
+    );
+  }
 
   if (!user) {
     return (

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, setToken } from "../api.js";
+import { api } from "../api.js";
 import Footer from "./Footer.jsx";
 
 export default function LoginScreen({ onAuthenticated }) {
@@ -15,7 +15,8 @@ export default function LoginScreen({ onAuthenticated }) {
     setLoading(true);
     try {
       const result = await api.auth.login({ username, password });
-      setToken(result.token);
+      // El backend ya dejó la cookie httpOnly de sesión puesta en la
+      // respuesta (A-01) — no hay ningún token que guardar desde aquí.
       onAuthenticated(result.user);
     } catch (err) {
       setError(err.message);

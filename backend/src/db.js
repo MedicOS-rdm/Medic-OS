@@ -20,12 +20,20 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+// Validación de TLS con Postgres administrado (Neon u otro): por defecto
+// se exige un certificado válido (rejectUnauthorized: true), como
+// corresponde para una base de datos con información clínica sensible.
+// Solo se relaja explícitamente si PGSSL_INSECURE=true está definida (uso
+// exclusivo para depurar contra un Postgres local sin certificado válido;
+// NUNCA debe activarse en producción).
+const sslConfig =
+  process.env.PGSSL_INSECURE === "true"
+    ? { rejectUnauthorized: false }
+    : { rejectUnauthorized: true };
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // La mayoría de proveedores gratis (Neon incluido) exigen SSL pero usan
-  // certificados que Node no valida por default con la configuración más
-  // estricta; esto es el ajuste estándar recomendado por Neon para Node.
-  ssl: { rejectUnauthorized: false },
+  ssl: sslConfig,
 });
 
 // ---------- Shim de compatibilidad ----------
@@ -430,6 +438,68 @@ export async function initDb() {
   await ensureColumn("certificates", "clinic_address", "TEXT");
   await ensureColumn("certificates", "clinic_phone", "TEXT");
   await ensureColumn("certificates", "issue_place", "TEXT");
+
+  // ---------- Versionado inmutable y control de exposición pública (C-04, C-03, A-09) ----------
+  // "status": emitido -> corregido (cuando se edita: el original NO se
+  // sobrescribe, se crea una fila nueva y el original queda marcado como
+  // corregido con un enlace a la fila que lo reemplaza) -> anulado (el
+  // médico anula el documento, con motivo obligatorio; no se borra la fila
+  // físicamente, así el historial médico-legal se conserva siempre).
+  await ensureColumn("certificates", "status", "TEXT NOT NULL DEFAULT 'emitido'");
+  await ensureColumn("certificates", "corrected_from_id", "INTEGER REFERENCES certificates(id)");
+  await ensureColumn("certificates", "superseded_by_id", "INTEGER REFERENCES certificates(id)");
+  await ensureColumn("certificates", "void_reason", "TEXT");
+  await ensureColumn("certificates", "voided_at", "TEXT");
+  await ensureColumn("certificates", "voided_by", "TEXT");
+  // Enlace público (WhatsApp) con caducidad y revocación — antes no expiraba nunca.
+  await ensureColumn("certificates", "share_expires_at", "TEXT");
+  await ensureColumn("certificates", "share_revoked", "INTEGER NOT NULL DEFAULT 0");
+
+  await ensureColumn("prescriptions", "status", "TEXT NOT NULL DEFAULT 'emitido'");
+  await ensureColumn("prescriptions", "corrected_from_id", "INTEGER REFERENCES prescriptions(id)");
+  await ensureColumn("prescriptions", "superseded_by_id", "INTEGER REFERENCES prescriptions(id)");
+  await ensureColumn("prescriptions", "void_reason", "TEXT");
+  await ensureColumn("prescriptions", "voided_at", "TEXT");
+  await ensureColumn("prescriptions", "voided_by", "TEXT");
+  // Antes, el mismo "qr_token" servía TANTO para el QR de verificación
+  // pública (datos mínimos) COMO para el enlace que descarga el PDF
+  // completo por WhatsApp — quien escaneaba el QR de verificación también
+  // podía armar la URL del PDF completo. Ahora son dos secretos distintos:
+  // qr_token sigue siendo el de verificación mínima; share_token (nuevo,
+  // como en certificates) es el único que sirve para el PDF completo, y sí
+  // caduca/se puede revocar.
+  await ensureColumn("prescriptions", "share_token", "TEXT");  await ensureColumn("prescriptions", "share_expires_at", "TEXT");
+  await ensureColumn("prescriptions", "share_revoked", "INTEGER NOT NULL DEFAULT 0");
+  // Back-fill: recetas ya emitidas antes de este cambio no tienen
+  // share_token todavía (comparten qr_token, que es justo lo que este
+  // cambio corrige) — se les asigna uno propio, generado en JS para no
+  // depender de la extensión pgcrypto en el proveedor de Postgres.
+  const legacyRx = await pool.query(`SELECT id FROM prescriptions WHERE share_token IS NULL`);
+  for (const row of legacyRx.rows) {
+    await pool.query(`UPDATE prescriptions SET share_token = $1 WHERE id = $2`, [crypto.randomBytes(16).toString("hex"), row.id]);
+  }
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'prescriptions_share_token_key'
+      ) THEN
+        ALTER TABLE prescriptions ADD CONSTRAINT prescriptions_share_token_key UNIQUE (share_token);
+      END IF;
+    END $$;
+  `);
+
+  // Notas de evolución (consultations) — el audit C-04 las incluye
+  // explícitamente junto a recetas y certificados: tampoco deberían poder
+  // sobrescribirse/borrarse sin dejar rastro. Sin token de enlace público
+  // (nunca se comparten fuera de la app), solo necesitan estado y motivo
+  // de anulación.
+  await ensureColumn("consultations", "status", "TEXT NOT NULL DEFAULT 'emitido'");
+  await ensureColumn("consultations", "corrected_from_id", "INTEGER REFERENCES consultations(id)");
+  await ensureColumn("consultations", "superseded_by_id", "INTEGER REFERENCES consultations(id)");
+  await ensureColumn("consultations", "void_reason", "TEXT");
+  await ensureColumn("consultations", "voided_at", "TEXT");
+  await ensureColumn("consultations", "voided_by", "TEXT");
 
   // ---------- Catálogo CIE-10 en español (más de 11,000 códigos) ----------
   // Se carga desde backend/data/cie10-es.json — un archivo de datos local,
