@@ -1,11 +1,13 @@
 import { db } from "./db.js";
+import { decryptSecret } from "./secretCrypto.js";
 
 const DEFAULT_TEMPLATE =
   "Hola {paciente}, le recordamos su cita el {fecha} a las {hora} en {consultorio}. Responda 1 para CONFIRMAR o 2 para CANCELAR.";
 
 export async function getSettings(clinicId) {
-  return (
-    (await db.prepare(`SELECT * FROM reminder_settings WHERE clinic_id = ?`).get(clinicId)) || {
+  const row = await db.prepare(`SELECT * FROM reminder_settings WHERE clinic_id = ?`).get(clinicId);
+  if (!row) {
+    return {
       clinic_id: clinicId,
       provider: "simulado",
       twilio_account_sid: "",
@@ -14,8 +16,11 @@ export async function getSettings(clinicId) {
       message_template: DEFAULT_TEMPLATE,
       hours_before: 24,
       enabled: 0,
-    }
-  );
+    };
+  }
+  // El valor en la base está cifrado (ver secretCrypto.js) — se descifra
+  // aquí, justo antes de usarlo para mandar el WhatsApp real.
+  return { ...row, twilio_auth_token: decryptSecret(row.twilio_auth_token) };
 }
 
 function renderTemplate(template, vars) {
@@ -83,8 +88,8 @@ export async function sendReminderForAppointment(appointmentId, clinicId) {
       .prepare(`UPDATE appointments SET reminder_sent_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS'), reminder_channel = ? WHERE id = ?`)
       .run(result.simulated ? "simulado" : settings.provider, appointmentId);
     await db
-      .prepare(`INSERT INTO reminder_log (appointment_id, direction, channel, body) VALUES (?, 'out', ?, ?)`)
-      .run(appointmentId, result.simulated ? "simulado" : settings.provider, message);
+      .prepare(`INSERT INTO reminder_log (appointment_id, direction, channel, body, phone) VALUES (?, 'out', ?, ?, ?)`)
+      .run(appointmentId, result.simulated ? "simulado" : settings.provider, message, appt.phone);
   }
 
   return { ok: result.ok, channel: settings.provider, simulated: Boolean(result.simulated), error: result.error, message };

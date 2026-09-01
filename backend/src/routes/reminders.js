@@ -3,6 +3,7 @@ import { db } from "../db.js";
 import { requireRole } from "../auth.js";
 import { webhookRateLimit } from "../rateLimiter.js";
 import { getSettings, sendReminderForAppointment } from "../reminders.js";
+import { encryptSecret } from "../secretCrypto.js";
 
 export const remindersRouter = Router();   // rutas protegidas (sesión)
 export const remindersWebhookRouter = Router(); // pública, la llama Twilio
@@ -31,7 +32,7 @@ remindersRouter.put("/reminder-settings", requireRole("medico"), async (req, res
 
   const current = await getSettings(req.user.clinic_id);
   const nextToken =
-    twilio_auth_token && twilio_auth_token !== "••••••••" ? twilio_auth_token : current.twilio_auth_token;
+    twilio_auth_token && twilio_auth_token !== "••••••••" ? encryptSecret(twilio_auth_token) : encryptSecret(current.twilio_auth_token);
 
   await db
     .prepare(
@@ -136,13 +137,34 @@ remindersWebhookRouter.post("/webhook", webhookRateLimit, async (req, res) => {
   let replyText = "No pudimos identificar tu cita. Por favor comunícate al consultorio.";
 
   if (patientQuery) {
-    const appt = await db
+    // GRAVE de la auditoría: en vez de adivinar "la próxima cita
+    // programada/confirmada" del paciente (ambiguo si tiene más de una),
+    // se busca primero a qué cita corresponde el RECORDATORIO SALIENTE
+    // más reciente enviado a este número — esa es la conversación real
+    // que el paciente está respondiendo. Solo si no hay ningún
+    // recordatorio previo (p. ej. el paciente escribe espontáneamente sin
+    // que se le haya mandado nada) se usa el criterio anterior como
+    // respaldo.
+    const recentReminder = await db
       .prepare(
-        `SELECT * FROM appointments
-         WHERE patient_id = ? AND clinic_id = ? AND status IN ('programada','confirmada')
-         ORDER BY start_time ASC LIMIT 1`
+        `SELECT rl.appointment_id, a.status FROM reminder_log rl
+         JOIN appointments a ON a.id = rl.appointment_id
+         WHERE rl.direction = 'out' AND a.clinic_id = ?
+           AND REPLACE(REPLACE(REPLACE(rl.phone,'-',''),' ',''),'+','') LIKE ?
+           AND a.status IN ('programada','confirmada')
+         ORDER BY rl.created_at DESC LIMIT 1`
       )
-      .get(patientQuery.id, patientQuery.clinic_id);
+      .get(patientQuery.clinic_id, `%${digits}`);
+
+    const appt = recentReminder
+      ? { id: recentReminder.appointment_id }
+      : await db
+          .prepare(
+            `SELECT * FROM appointments
+             WHERE patient_id = ? AND clinic_id = ? AND status IN ('programada','confirmada')
+             ORDER BY start_time ASC LIMIT 1`
+          )
+          .get(patientQuery.id, patientQuery.clinic_id);
 
     if (appt) {
       if (body === "1") {

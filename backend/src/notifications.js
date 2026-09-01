@@ -18,6 +18,7 @@
 import { PassThrough } from "node:stream";
 import { db } from "./db.js";
 import { getSettings as getReminderSettings } from "./reminders.js";
+import { decryptSecret } from "./secretCrypto.js";
 
 function getPublicBaseUrl() {
   return (process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "").replace(/\/$/, "");
@@ -25,8 +26,8 @@ function getPublicBaseUrl() {
 
 export async function getNotificationSettings(clinicId) {
   const row = await db.prepare(`SELECT * FROM notification_settings WHERE clinic_id = ?`).get(clinicId);
-  return (
-    row || {
+  if (!row) {
+    return {
       clinic_id: clinicId,
       auto_send_whatsapp: 0,
       auto_send_email: 0,
@@ -37,8 +38,11 @@ export async function getNotificationSettings(clinicId) {
       smtp_pass: "",
       smtp_from_name: "",
       smtp_from_email: "",
-    }
-  );
+    };
+  }
+  // El valor en la base está cifrado (ver secretCrypto.js) — se descifra
+  // aquí, justo antes de usarlo para mandar el correo real.
+  return { ...row, smtp_pass: decryptSecret(row.smtp_pass) };
 }
 
 async function sendWhatsAppDocument({ clinicId, phone, message, mediaUrl }) {

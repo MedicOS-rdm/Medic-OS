@@ -37,34 +37,45 @@ export default function PrescriptionModal({ patientId, consultationId, existing 
     setItems((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function handleSubmit(e, overrideAllergy = false) {
+    e?.preventDefault?.();
     setError(null);
     if (items.length === 0) {
       setError("Agrega al menos un medicamento.");
       return;
     }
     setSaving(true);
+    const payload = {
+      items: items.map(({ key, ...rest }) => rest),
+      instructions,
+      ...(overrideAllergy ? { confirm_allergy_override: true } : {}),
+    };
     try {
       if (isEdit) {
         // C-04: editar ahora crea una CORRECCIÓN (una fila nueva); usamos
         // el id que regresa el servidor, no el de la receta original.
-        const updated = await api.prescriptions.update(existing.id, {
-          items: items.map(({ key, ...rest }) => rest),
-          instructions,
-        });
+        const updated = await api.prescriptions.update(existing.id, payload);
         setDoneId(updated.id);
       } else {
-        const rx = await api.prescriptions.create({
-          patient_id: patientId,
-          consultation_id: consultationId ?? null,
-          items: items.map(({ key, ...rest }) => rest),
-          instructions,
-        });
+        const rx = await api.prescriptions.create({ patient_id: patientId, consultation_id: consultationId ?? null, ...payload });
         setDoneId(rx.id);
       }
     } catch (err) {
-      setError(err.message);
+      // Alerta de alergias (GRAVE de la auditoría): el backend responde
+      // 409 con el detalle en vez de bloquear en silencio o sin avisar —
+      // se le pregunta al médico si de todas formas quiere continuar.
+      if (err.allergy_conflicts?.length > 0) {
+        const detail = err.allergy_conflicts.map((c) => `• ${c.medication} (alergia registrada: ${c.allergy})`).join("\n");
+        const proceed = confirm(
+          `⚠️ Posible alergia registrada en este paciente:\n\n${detail}\n\n¿Deseas continuar de todas formas?`
+        );
+        if (proceed) {
+          setSaving(false);
+          return handleSubmit(null, true);
+        }
+      } else {
+        setError(err.message);
+      }
     } finally {
       setSaving(false);
     }

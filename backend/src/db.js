@@ -62,53 +62,71 @@ function ensureReturningId(sql) {
   return sql;
 }
 
-export const db = {
-  prepare(sql) {
-    const pgSql = toPgPlaceholders(sql);
-    const pgSqlWithReturning = ensureReturningId(pgSql);
-    return {
-      async get(...params) {
-        const res = await pool.query(pgSql, params);
-        return res.rows[0] || undefined;
-      },
-      async all(...params) {
-        const res = await pool.query(pgSql, params);
-        return res.rows;
-      },
-      async run(...params) {
-        const res = await pool.query(pgSqlWithReturning, params);
-        return {
-          changes: res.rowCount,
-          lastInsertRowid: res.rows[0]?.id,
-        };
-      },
-    };
-  },
-  async exec(sql) {
-    await pool.query(sql);
-  },
-  // db.transaction(fn) en better-sqlite3 regresa una función síncrona que
-  // ejecuta fn dentro de una transacción. Aquí lo simplificamos: como
-  // fn ya no puede ser síncrona (necesita await en cada .run()), quien la
-  // use debe llamarla con `await` y fn debe ser async. Se usa solo para
-  // sembrar catálogos al arrancar (no es una ruta HTTP), así que no hay
-  // problema de que sea async.
-  transaction(fn) {
-    return async (...args) => {
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await fn(...args);
-        await client.query("COMMIT");
-      } catch (err) {
-        await client.query("ROLLBACK");
-        throw err;
-      } finally {
-        client.release();
-      }
-    };
-  },
-};
+// Fábrica que arma el mismo shim de compatibilidad (`.prepare(sql).get/all/run`)
+// tanto para el pool normal como para una transacción — la única
+// diferencia es qué función de bajo nivel ejecuta el SQL (`pool.query` o
+// `client.query` de una conexión ya abierta en una transacción).
+function makeDbFrom(queryExecutor) {
+  return {
+    prepare(sql) {
+      const pgSql = toPgPlaceholders(sql);
+      const pgSqlWithReturning = ensureReturningId(pgSql);
+      return {
+        async get(...params) {
+          const res = await queryExecutor(pgSql, params);
+          return res.rows[0] || undefined;
+        },
+        async all(...params) {
+          const res = await queryExecutor(pgSql, params);
+          return res.rows;
+        },
+        async run(...params) {
+          const res = await queryExecutor(pgSqlWithReturning, params);
+          return {
+            changes: res.rowCount,
+            lastInsertRowid: res.rows[0]?.id,
+          };
+        },
+      };
+    },
+    async exec(sql) {
+      await queryExecutor(sql, []);
+    },
+  };
+}
+
+export const db = makeDbFrom((sql, params) => pool.query(sql, params));
+
+// CRÍTICO POTENCIAL de la auditoría: "el proyecto dispone de
+// infraestructura transaccional en db.js, pero los flujos que crean
+// varias entidades... pueden quedar parcialmente ejecutados si una
+// operación intermedia falla". Al revisar esto encontré que era exacto:
+// existía un `db.transaction(fn)` que abría BEGIN/COMMIT sobre una
+// conexión dedicada, pero `fn` seguía usando `db.prepare(...)` de más
+// arriba, que toma conexiones SUELTAS del pool — es decir, las consultas
+// de adentro NUNCA corrían realmente dentro de esa transacción, y
+// además nunca se usaba en ninguna ruta. Este reemplazo sí funciona: crea
+// una conexión dedicada, la pasa como un "db" con la misma forma
+// (`tx.prepare(sql).get/all/run(...)`) a la función que le pases, y hace
+// COMMIT solo si todo terminó bien — si cualquier paso lanza, hace
+// ROLLBACK y ninguno de los cambios queda a medias.
+//
+// Uso: `await withTransaction(async (tx) => { await tx.prepare(...).run(...); ... })`
+export async function withTransaction(fn) {
+  const client = await pool.connect();
+  const tx = makeDbFrom((sql, params) => client.query(sql, params));
+  try {
+    await client.query("BEGIN");
+    const result = await fn(tx);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
 // ---------- Esquema ----------
 // NOTA: created_at/updated_at se guardan como TEXT con formato
@@ -144,6 +162,34 @@ async function ensureColumn(table, column, definition) {
   // Postgres soporta "ADD COLUMN IF NOT EXISTS" nativamente — más simple
   // y seguro que inspeccionar el esquema a mano.
   await pool.query(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
+}
+
+// GRAVE de la auditoría: "no se identificaron CHECK constraints ni
+// validaciones a nivel de base de datos para... rangos clínicos". La
+// aplicación ya valida esto (ver validators.js), pero solo la base de
+// datos es la última línea de defensa real — protege incluso si alguien
+// escribe directamente por SQL o si un futuro cambio de código se salta
+// la validación de la aplicación por error.
+//
+// Se agregan como NOT VALID a propósito: un CHECK normal revisa TODAS las
+// filas existentes al crearse, y si ya hay una sola fila con un valor
+// fuera de rango (dato viejo de antes de que existiera esta validación),
+// la migración completa fallaría y el servidor no arrancaría. NOT VALID
+// se salta esa revisión histórica — protege todo lo que se escriba de
+// ahora en adelante, sin arriesgar el arranque por datos del pasado.
+async function addCheckConstraintNotValid(table, constraintName, expression) {
+  try {
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${constraintName}') THEN
+          ALTER TABLE "${table}" ADD CONSTRAINT ${constraintName} CHECK (${expression}) NOT VALID;
+        END IF;
+      END $$;
+    `);
+  } catch (err) {
+    console.warn(`[db] No se pudo agregar la restricción ${constraintName} en ${table} (se sigue confiando solo en la validación de la aplicación):`, err.message);
+  }
 }
 
 export async function initDb() {
@@ -445,8 +491,7 @@ export async function initDb() {
   // corregido con un enlace a la fila que lo reemplaza) -> anulado (el
   // médico anula el documento, con motivo obligatorio; no se borra la fila
   // físicamente, así el historial médico-legal se conserva siempre).
-  await ensureColumn("certificates", "status", "TEXT NOT NULL DEFAULT 'emitido'");
-  await ensureColumn("certificates", "corrected_from_id", "INTEGER REFERENCES certificates(id)");
+  await ensureColumn("certificates", "status", "TEXT NOT NULL DEFAULT 'emitido'");  await ensureColumn("certificates", "corrected_from_id", "INTEGER REFERENCES certificates(id)");
   await ensureColumn("certificates", "superseded_by_id", "INTEGER REFERENCES certificates(id)");
   await ensureColumn("certificates", "void_reason", "TEXT");
   await ensureColumn("certificates", "voided_at", "TEXT");
@@ -488,6 +533,102 @@ export async function initDb() {
       END IF;
     END $$;
   `);
+
+  // CRÍTICO FUNCIONAL/CLÍNICO de la auditoría: antes DELETE /patients/:id
+  // borraba la fila físicamente (con ON DELETE CASCADE arrastrando
+  // consultas, recetas, certificados y citas). En una historia clínica
+  // real eso puede destruir información asistencial sin remedio y romper
+  // la trazabilidad exigida. Ahora un paciente se ARCHIVA (no se borra):
+  // queda fuera de las búsquedas normales pero su expediente completo
+  // sigue intacto y es recuperable.
+  await ensureColumn("patients", "status", "TEXT NOT NULL DEFAULT 'activo'");
+  await ensureColumn("patients", "archived_reason", "TEXT");
+  await ensureColumn("patients", "archived_at", "TEXT");
+  await ensureColumn("patients", "archived_by", "TEXT");
+
+  // CRÍTICO FUNCIONAL de la auditoría: antes DELETE /appointments/:id
+  // borraba la cita físicamente. Ahora se cancela (status='cancelada',
+  // que ya existía) con un motivo obligatorio que sí queda guardado.
+  // GRAVE de la auditoría (webhook de Twilio): antes se respondía a "la
+  // próxima cita programada/confirmada" del paciente que coincidiera por
+  // teléfono — si tenía dos citas cercanas, la respuesta podía aplicarse
+  // a la cita equivocada. Ahora se guarda a qué teléfono se envió cada
+  // recordatorio saliente, y el webhook responde sobre la cita del
+  // recordatorio MÁS RECIENTE enviado a ese número — es decir, sobre la
+  // conversación real que se está respondiendo.
+  await ensureColumn("reminder_log", "phone", "TEXT");
+
+  // GRAVE de la auditoría: "el JWT es válido 12 horas sin mecanismo
+  // central de revocación" — si un token se filtra (o si hay que forzar
+  // el cierre de sesión de alguien, p. ej. tras cambiar su contraseña),
+  // antes no había forma de invalidarlo antes de que expirara solo.
+  // session_version se incluye en el token al iniciar sesión y se
+  // compara contra el valor actual en la base en cada petición (ver
+  // requireAuth); cambiar la contraseña incrementa este número, lo que
+  // invalida automáticamente cualquier token viejo emitido antes del
+  // cambio, sin tener que esperar a que expire.
+  await ensureColumn("users", "session_version", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn("appointments", "cancel_reason", "TEXT");
+
+  // GRAVE de la auditoría (G7): restricciones a nivel de base de datos
+  // para los mismos rangos/valores que ya valida la aplicación (ver
+  // validators.js) — última línea de defensa, NOT VALID para no arriesgar
+  // el arranque por datos históricos (ver addCheckConstraintNotValid).
+  await addCheckConstraintNotValid(
+    "appointments",
+    "appointments_status_check",
+    `status IN (${VALID_STATUSES.map((s) => `'${s}'`).join(",")})`
+  );
+  await addCheckConstraintNotValid("appointments", "appointments_duration_check", "duration_minutes > 0 AND duration_minutes <= 480");
+  await addCheckConstraintNotValid("certificates", "certificates_status_check", "status IN ('emitido','corregido','anulado')");
+  await addCheckConstraintNotValid("prescriptions", "prescriptions_status_check", "status IN ('emitido','corregido','anulado')");
+  await addCheckConstraintNotValid("consultations", "consultations_status_check", "status IN ('emitido','corregido','anulado')");
+  await addCheckConstraintNotValid("consultations", "consultations_heart_rate_check", "heart_rate BETWEEN 20 AND 300");
+  await addCheckConstraintNotValid("consultations", "consultations_temperature_check", "temperature_c BETWEEN 25 AND 45");
+  await addCheckConstraintNotValid("consultations", "consultations_weight_check", "weight_kg BETWEEN 0.3 AND 400");
+  await addCheckConstraintNotValid("consultations", "consultations_height_check", "height_cm BETWEEN 15 AND 250");
+
+  // CRÍTICO POTENCIAL de la auditoría: no había ninguna protección contra
+  // dos citas que se traslapan en el mismo horario, ni siquiera frente a
+  // dos solicitudes simultáneas (una validación solo en el backend, antes
+  // de insertar, sigue teniendo una ventana de carrera: dos peticiones
+  // pueden pasar esa validación "al mismo tiempo" y las dos insertar).
+  // La única defensa que de verdad funciona bajo concurrencia es una
+  // restricción a nivel de base de datos — aquí, un EXCLUDE constraint
+  // que usa el rango de tiempo [inicio, inicio+duración) de la cita: dos
+  // filas de la MISMA clínica cuyo rango se traslape (y ninguna esté
+  // cancelada) quedan bloqueadas por Postgres mismo, sin importar qué
+  // tan simultáneas sean las peticiones. Se agrega de forma defensiva:
+  // si el proveedor de Postgres no permite crear la extensión, o si ya
+  // existen citas traslapadas en los datos actuales (algo posible si
+  // nunca hubo esta validación), la migración se salta con una
+  // advertencia en vez de tumbar el arranque del servidor — en ese caso
+  // solo queda la validación de aplicación (ver routes/appointments.js),
+  // que sigue siendo mejor que nada pero no es 100% segura bajo
+  // concurrencia real.
+  try {
+    await pool.query(`CREATE EXTENSION IF NOT EXISTS btree_gist`);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'appointments_no_overlap') THEN
+          ALTER TABLE appointments ADD CONSTRAINT appointments_no_overlap
+            EXCLUDE USING gist (
+              clinic_id WITH =,
+              tsrange(start_time::timestamp, start_time::timestamp + (duration_minutes || ' minutes')::interval) WITH &&
+            ) WHERE (status <> 'cancelada');
+        END IF;
+      END $$;
+    `);
+  } catch (err) {
+    console.warn(
+      "[db] No se pudo crear la restricción anti-solapamiento de citas (appointments_no_overlap). " +
+        "Puede deberse a que el proveedor de Postgres no permite btree_gist, o a que ya existen citas " +
+        "traslapadas en los datos actuales. La app sigue funcionando con la validación de aplicación " +
+        "únicamente. Detalle:",
+      err.message
+    );
+  }
 
   // Notas de evolución (consultations) — el audit C-04 las incluye
   // explícitamente junto a recetas y certificados: tampoco deberían poder
@@ -606,13 +747,44 @@ export async function initDb() {
     await pool.query(`INSERT INTO schema_migrations (name) VALUES ($1)`, [MIGRATION_NAME]);
     console.log(`[migración] Horas de registros existentes corregidas de UTC a hora de Ecuador (${MIGRATION_NAME})`);
   }
+
+  // GRAVE de la auditoría: "audit_log no es estrictamente append-only ni
+  // hay separación de privilegios — un operador con acceso amplio a la
+  // base podría alterar la evidencia". No controlamos roles de Postgres
+  // separados en un hosting compartido típico (Neon/Render), pero SÍ
+  // podemos hacer que la tabla se comporte como append-only para
+  // CUALQUIER conexión, incluida la propia app: un trigger a nivel de
+  // base de datos que rechaza cualquier UPDATE o DELETE contra
+  // audit_log, sin importar qué usuario/rol ejecute la sentencia SQL.
+  // IMPORTANTE: se crea AQUÍ, después de la migración de arriba (que si
+  // corre, sí necesita poder hacer UPDATE audit_log una única vez) — así
+  // nunca chocan entre sí.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION audit_log_immutable() RETURNS TRIGGER AS $$
+    BEGIN
+      RAISE EXCEPTION 'audit_log es de solo lectura una vez escrito: % no está permitido', TG_OP;
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`DROP TRIGGER IF EXISTS audit_log_no_update ON audit_log`);
+  await pool.query(`
+    CREATE TRIGGER audit_log_no_update
+      BEFORE UPDATE OR DELETE ON audit_log
+      FOR EACH ROW EXECUTE FUNCTION audit_log_immutable();
+  `);
 }
 
-export async function logAudit({ clinicId = null, actor = "sistema", action, entity, entityId, detail }) {
-  await pool.query(
-    `INSERT INTO audit_log (clinic_id, actor, action, entity, entity_id, detail) VALUES ($1, $2, $3, $4, $5, $6)`,
-    [clinicId, actor, action, entity, entityId ?? null, detail ? JSON.stringify(detail) : null]
-  );
+// `tx`: pásalo (el objeto que te da withTransaction) cuando la escritura
+// de auditoría debe formar parte de la MISMA transacción que el cambio
+// que audita (así, si la transacción hace rollback, tampoco queda un
+// registro de auditoría huérfano describiendo un cambio que en realidad
+// no se guardó). Por defecto usa el pool normal (para los muchos casos
+// que no son multi-paso).
+export async function logAudit({ clinicId = null, actor = "sistema", action, entity, entityId, detail, tx }) {
+  const executor = tx || db;
+  await executor
+    .prepare(`INSERT INTO audit_log (clinic_id, actor, action, entity, entity_id, detail) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(clinicId, actor, action, entity, entityId ?? null, detail ? JSON.stringify(detail) : null);
 }
 
 export function newQrToken() {

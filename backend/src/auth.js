@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { db } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const secretPath = path.join(__dirname, "..", ".jwt_secret");
@@ -58,13 +59,14 @@ export function signToken(user) {
       role: user.role,
       clinic_id: user.clinic_id,
       clinic_name: user.clinic_name,
+      session_version: user.session_version ?? 0,
     },
     JWT_SECRET,
     { expiresIn: "12h" }
   );
 }
 
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
   // Orden: cookie httpOnly (uso normal desde el navegador) primero, luego
   // Authorization: Bearer (para scripts/integraciones que no manejan
@@ -74,7 +76,16 @@ export function requireAuth(req, res, next) {
   const token = (req.cookies && req.cookies[AUTH_COOKIE_NAME]) || (header.startsWith("Bearer ") ? header.slice(7) : null);
   if (!token) return res.status(401).json({ error: "No autenticado" });
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET);
+    // Revocación de sesión (GRAVE de la auditoría): si la contraseña de
+    // este usuario cambió después de que se emitió este token,
+    // session_version ya no coincide y el token deja de servir de
+    // inmediato, sin esperar a que expiren las 12 horas.
+    const row = await db.prepare(`SELECT session_version FROM users WHERE id = ?`).get(payload.id);
+    if (!row || row.session_version !== (payload.session_version ?? 0)) {
+      return res.status(401).json({ error: "Sesión inválida o expirada" });
+    }
+    req.user = payload;
     next();
   } catch {
     return res.status(401).json({ error: "Sesión inválida o expirada" });

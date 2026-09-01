@@ -34,6 +34,7 @@ authRouter.post("/login", loginRateLimit, async (req, res) => {
     role: row.role,
     clinic_id: row.clinic_id,
     clinic_name: row.clinic_name,
+    session_version: row.session_version,
   };
   await logAudit({ clinicId: user.clinic_id, actor: user.username, action: "login", entity: "user", entityId: user.id });
 
@@ -43,7 +44,7 @@ authRouter.post("/login", loginRateLimit, async (req, res) => {
   // en navegador (scripts, integraciones futuras) necesita usarlo como
   // Authorization: Bearer en vez de cookie.
   setAuthCookie(res, token);
-  res.json({ token, user });
+  res.json({ token, user: { ...user, session_version: undefined } });
 });
 
 // POST /api/auth/logout -> borra la cookie de sesión del navegador.
@@ -75,7 +76,10 @@ authRouter.post("/change-password", requireAuth, async (req, res) => {
   }
 
   const password_hash = bcrypt.hashSync(new_password, 10);
-  await db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(password_hash, row.id);
+  // Incrementar session_version invalida de inmediato cualquier otro
+  // token ya emitido para este usuario (por ejemplo, una sesión abierta
+  // en otro dispositivo con la contraseña anterior) — ver auth.js.
+  await db.prepare(`UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?`).run(password_hash, row.id);
   await logAudit({
     clinicId: req.user.clinic_id,
     actor: req.user.username,
@@ -85,5 +89,11 @@ authRouter.post("/change-password", requireAuth, async (req, res) => {
     detail: { reason: "self_change_password" },
   });
 
+  // La sesión ACTUAL sigue funcionando (se reemite el token con el nuevo
+  // session_version); cualquier OTRA sesión abierta con la contraseña
+  // anterior queda invalidada de inmediato en su siguiente petición.
+  const refreshed = await db.prepare(`SELECT session_version FROM users WHERE id = ?`).get(row.id);
+  const token = signToken({ ...req.user, session_version: refreshed.session_version });
+  setAuthCookie(res, token);
   res.json({ ok: true });
 });

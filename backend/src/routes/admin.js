@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db, logAudit, suggestAvailableUsername } from "../db.js";
 import { timingSafeEqualString } from "../auth.js";
-import { passwordPolicyError } from "../passwordPolicy.js";
+import { passwordPolicyError, generateSecurePassword } from "../passwordPolicy.js";
 
 export const adminRouter = Router();
 
@@ -68,10 +68,15 @@ adminRouter.post("/clinics/:id/reset-password", async (req, res) => {
 
   const { password } = req.body;
   const policyError = password ? passwordPolicyError(password) : null;
-  const newPassword = password && !policyError ? password : Math.random().toString(36).slice(-8) + "A1"; // fallback ya cumple longitud/mezcla
+  // GRAVE de la auditoría: el respaldo anterior (Math.random().toString(36).slice(-8) + "A1")
+  // no garantizaba una longitud fija — la cantidad de dígitos que produce
+  // Math.random().toString(36) varía según el valor aleatorio obtenido.
+  // generateSecurePassword() sí tiene longitud fija y cumple la política
+  // por construcción (ver passwordPolicy.js).
+  const newPassword = password && !policyError ? password : generateSecurePassword();
   const password_hash = bcrypt.hashSync(newPassword, 10);
 
-  await db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(password_hash, doctor.id);
+  await db.prepare(`UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?`).run(password_hash, doctor.id);
   await logAudit({ clinicId: req.params.id, actor: "admin", action: "update", entity: "user", entityId: doctor.id, detail: { reason: "password_reset" } });
 
   res.json({ username: doctor.username, password: newPassword });

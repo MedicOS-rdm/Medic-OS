@@ -3,9 +3,10 @@ import PDFDocument from "pdfkit";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { db, logAudit, newQrToken } from "../db.js";
+import { db, logAudit, newQrToken, withTransaction } from "../db.js";
 import { spellDateSpanish, formatDateSlashes } from "../spanishDates.js";
 import { notifyDocumentIssued } from "../notifications.js";
+import { ISO_DATE_RE, daysBetweenInclusive } from "../validators.js";
 
 export const certificatesRouter = Router();
 
@@ -35,7 +36,6 @@ function newShareExpiry() {
   return new Date(Date.now() + SHARE_LINK_VALID_DAYS * 24 * 60 * 60 * 1000).toISOString();
 }
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 async function getDoctorProfile(clinicId) {
   return (
@@ -53,12 +53,7 @@ async function getDoctorProfile(clinicId) {
   );
 }
 
-function daysBetweenInclusive(fromISO, toISO) {
-  const from = new Date(`${fromISO}T00:00:00`);
-  const to = new Date(`${toISO}T00:00:00`);
-  const diff = Math.round((to - from) / (1000 * 60 * 60 * 24));
-  return diff >= 0 ? diff + 1 : null;
-}
+// (daysBetweenInclusive vive en ../validators.js, compartida y probada por tests)
 
 // Convierte un "data URI" (ej. "data:image/png;base64,....") guardado en
 // doctor_profile.logo_base64 a un Buffer que pdfkit pueda dibujar. Si no
@@ -255,72 +250,84 @@ certificatesRouter.put("/:id", async (req, res) => {
   // su propio share_token con caducidad propia.
   const share_token = newQrToken();
   const share_expires_at = newShareExpiry();
-  const result = await db
-    .prepare(
-      `INSERT INTO certificates
-        (clinic_id, patient_id, consultation_id,
-         diagnosis_code, diagnosis_label, clinical_picture, presents_symptoms, certificate_type,
-         description, days_granted, date_from, date_to,
-         patient_full_name, patient_address, patient_phone, patient_email,
-         patient_institution, patient_job_title, patient_id_number, patient_clinical_history_number,
-         doctor_name, doctor_personal_id, doctor_license, doctor_specialty, doctor_email,
-         clinic_name, clinic_address, clinic_phone, issue_place, share_token, share_expires_at,
-         corrected_from_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      existing.clinic_id,
-      existing.patient_id,
-      existing.consultation_id,
-      diagnosis_code ?? null,
-      diagnosis_label ?? null,
-      clinical_picture ?? null,
-      presents_symptoms === false ? 0 : 1,
-      certificate_type,
-      description ?? null,
-      finalDays,
-      date_from,
-      date_to,
-      existing.patient_full_name,
-      existing.patient_address,
-      existing.patient_phone,
-      existing.patient_email,
-      existing.patient_institution,
-      existing.patient_job_title,
-      existing.patient_id_number,
-      existing.patient_clinical_history_number,
-      existing.doctor_name,
-      existing.doctor_personal_id,
-      existing.doctor_license,
-      existing.doctor_specialty,
-      existing.doctor_email,
-      existing.clinic_name,
-      existing.clinic_address,
-      existing.clinic_phone,
-      existing.issue_place,
-      share_token,
-      share_expires_at,
-      existing.id
-    );
 
-  await db
-    .prepare(
-      `UPDATE certificates SET status = 'corregido', superseded_by_id = ?,
-        updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
-       WHERE id = ?`
-    )
-    .run(result.lastInsertRowid, existing.id);
+  // CRÍTICO POTENCIAL de la auditoría: crear la corrección + marcar el
+  // original como "corregido" son DOS escrituras relacionadas; si el
+  // proceso fallara entre la una y la otra, quedarían dos certificados
+  // "emitido" vigentes para el mismo caso (uno de ellos ya desactualizado
+  // sin que nadie lo supiera). Ambas ahora corren en una sola transacción:
+  // o se aplican las dos, o ninguna.
+  const newId = await withTransaction(async (tx) => {
+    const result = await tx
+      .prepare(
+        `INSERT INTO certificates
+          (clinic_id, patient_id, consultation_id,
+           diagnosis_code, diagnosis_label, clinical_picture, presents_symptoms, certificate_type,
+           description, days_granted, date_from, date_to,
+           patient_full_name, patient_address, patient_phone, patient_email,
+           patient_institution, patient_job_title, patient_id_number, patient_clinical_history_number,
+           doctor_name, doctor_personal_id, doctor_license, doctor_specialty, doctor_email,
+           clinic_name, clinic_address, clinic_phone, issue_place, share_token, share_expires_at,
+           corrected_from_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        existing.clinic_id,
+        existing.patient_id,
+        existing.consultation_id,
+        diagnosis_code ?? null,
+        diagnosis_label ?? null,
+        clinical_picture ?? null,
+        presents_symptoms === false ? 0 : 1,
+        certificate_type,
+        description ?? null,
+        finalDays,
+        date_from,
+        date_to,
+        existing.patient_full_name,
+        existing.patient_address,
+        existing.patient_phone,
+        existing.patient_email,
+        existing.patient_institution,
+        existing.patient_job_title,
+        existing.patient_id_number,
+        existing.patient_clinical_history_number,
+        existing.doctor_name,
+        existing.doctor_personal_id,
+        existing.doctor_license,
+        existing.doctor_specialty,
+        existing.doctor_email,
+        existing.clinic_name,
+        existing.clinic_address,
+        existing.clinic_phone,
+        existing.issue_place,
+        share_token,
+        share_expires_at,
+        existing.id
+      );
 
-  await logAudit({
-    clinicId: req.user.clinic_id,
-    actor: req.user.username,
-    action: "correct",
-    entity: "certificate",
-    entityId: existing.id,
-    detail: { new_id: result.lastInsertRowid },
+    await tx
+      .prepare(
+        `UPDATE certificates SET status = 'corregido', superseded_by_id = ?,
+          updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+         WHERE id = ?`
+      )
+      .run(result.lastInsertRowid, existing.id);
+
+    await logAudit({
+      clinicId: req.user.clinic_id,
+      actor: req.user.username,
+      action: "correct",
+      entity: "certificate",
+      entityId: existing.id,
+      detail: { new_id: result.lastInsertRowid },
+      tx,
+    });
+
+    return result.lastInsertRowid;
   });
 
-  res.json(await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(result.lastInsertRowid));
+  res.json(await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(newId));
 });
 
 // DELETE /api/certificates/:id -> C-04: ya no borra la fila. Un
@@ -338,21 +345,24 @@ certificatesRouter.delete("/:id", async (req, res) => {
     return res.status(400).json({ error: "Indica el motivo de la anulación (mínimo 5 caracteres)" });
   }
 
-  await db
-    .prepare(
-      `UPDATE certificates SET status = 'anulado', void_reason = ?, voided_by = ?, share_revoked = 1,
-        voided_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
-       WHERE id = ?`
-    )
-    .run(reason, req.user.username, req.params.id);
+  await withTransaction(async (tx) => {
+    await tx
+      .prepare(
+        `UPDATE certificates SET status = 'anulado', void_reason = ?, voided_by = ?, share_revoked = 1,
+          voided_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+         WHERE id = ?`
+      )
+      .run(reason, req.user.username, req.params.id);
 
-  await logAudit({
-    clinicId: req.user.clinic_id,
-    actor: req.user.username,
-    action: "void",
-    entity: "certificate",
-    entityId: req.params.id,
-    detail: { reason },
+    await logAudit({
+      clinicId: req.user.clinic_id,
+      actor: req.user.username,
+      action: "void",
+      entity: "certificate",
+      entityId: req.params.id,
+      detail: { reason },
+      tx,
+    });
   });
   res.json(await db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(req.params.id));
 });

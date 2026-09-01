@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { requireRole } from "../auth.js";
 import { getNotificationSettings } from "../notifications.js";
+import { encryptSecret } from "../secretCrypto.js";
 
 export const notificationSettingsRouter = Router();
 
@@ -31,7 +32,7 @@ notificationSettingsRouter.put("/notification-settings", requireRole("medico"), 
   } = req.body;
 
   const current = await getNotificationSettings(req.user.clinic_id);
-  const nextPass = smtp_pass && smtp_pass !== "••••••••" ? smtp_pass : current.smtp_pass;
+  const nextPass = smtp_pass && smtp_pass !== "••••••••" ? encryptSecret(smtp_pass) : encryptSecret(current.smtp_pass);
 
   await db
     .prepare(

@@ -2,8 +2,9 @@ import { Router } from "express";
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
 import crypto from "node:crypto";
-import { db, logAudit, newQrToken } from "../db.js";
+import { db, logAudit, newQrToken, withTransaction } from "../db.js";
 import { notifyDocumentIssued } from "../notifications.js";
+import { findAllergyConflicts } from "../validators.js";
 
 export const prescriptionsRouter = Router();
 
@@ -15,10 +16,10 @@ const BRAND_BLUE = "#0460d3";
 // Cuánto dura vigente el enlace público (WhatsApp) antes de expirar solo
 // (C-03) — igual que en certificates.js.
 const SHARE_LINK_VALID_DAYS = 30;
-function newShareExpiry() {
+export function newShareExpiry() {
   return new Date(Date.now() + SHARE_LINK_VALID_DAYS * 24 * 60 * 60 * 1000).toISOString();
 }
-function newShareToken() {
+export function newShareToken() {
   return crypto.randomBytes(16).toString("hex");
 }
 
@@ -89,8 +90,22 @@ prescriptionsRouter.post("/", async (req, res) => {
     }
   }
 
-  const patient = await db.prepare(`SELECT id FROM patients WHERE id = ? AND clinic_id = ?`).get(patient_id, req.user.clinic_id);
+  const patient = await db.prepare(`SELECT id, allergies FROM patients WHERE id = ? AND clinic_id = ?`).get(patient_id, req.user.clinic_id);
   if (!patient) return res.status(400).json({ error: "El paciente no existe" });
+
+  // GRAVE de la auditoría: alerta de alergias antes de emitir la receta.
+  // Es una CONFIRMACIÓN, no un bloqueo automático — si el médico ya la vio
+  // y decide continuar (a su criterio clínico), reenvía la misma petición
+  // con confirm_allergy_override: true.
+  if (!req.body.confirm_allergy_override) {
+    const conflicts = findAllergyConflicts(patient.allergies, items);
+    if (conflicts.length > 0) {
+      return res.status(409).json({
+        error: "El paciente tiene registrada una alergia que coincide con uno de estos medicamentos.",
+        allergy_conflicts: conflicts,
+      });
+    }
+  }
 
   // A-08: si viene ligada a una consulta puntual, esa consulta debe ser
   // del mismo paciente.
@@ -191,54 +206,74 @@ prescriptionsRouter.put("/:id", async (req, res) => {
     }
   }
 
+  if (!req.body.confirm_allergy_override) {
+    const patient = await db.prepare(`SELECT allergies FROM patients WHERE id = ?`).get(existing.patient_id);
+    const conflicts = findAllergyConflicts(patient?.allergies, items);
+    if (conflicts.length > 0) {
+      return res.status(409).json({
+        error: "El paciente tiene registrada una alergia que coincide con uno de estos medicamentos.",
+        allergy_conflicts: conflicts,
+      });
+    }
+  }
+
   const qr_token = newQrToken();
   const share_token = newShareToken();
   const share_expires_at = newShareExpiry();
-  const result = await db
-    .prepare(
-      `INSERT INTO prescriptions
-        (clinic_id, patient_id, consultation_id, qr_token, share_token, share_expires_at, items_json, instructions,
-         doctor_name, doctor_license, doctor_specialty, doctor_mobile_phone, clinic_name, clinic_address, clinic_phone,
-         corrected_from_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      existing.clinic_id,
-      existing.patient_id,
-      existing.consultation_id,
-      qr_token,
-      share_token,
-      share_expires_at,
-      JSON.stringify(items),
-      instructions ?? null,
-      existing.doctor_name,
-      existing.doctor_license,
-      existing.doctor_specialty,
-      existing.doctor_mobile_phone,
-      existing.clinic_name,
-      existing.clinic_address,
-      existing.clinic_phone,
-      existing.id
-    );
 
-  await db
-    .prepare(
-      `UPDATE prescriptions SET status = 'corregido', superseded_by_id = ?,
-        updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
-       WHERE id = ?`
-    )
-    .run(result.lastInsertRowid, existing.id);
+  // CRÍTICO POTENCIAL de la auditoría: igual que en certificates.js, crear
+  // la corrección + marcar la original como "corregida" ahora corre en una
+  // sola transacción.
+  const newId = await withTransaction(async (tx) => {
+    const result = await tx
+      .prepare(
+        `INSERT INTO prescriptions
+          (clinic_id, patient_id, consultation_id, qr_token, share_token, share_expires_at, items_json, instructions,
+           doctor_name, doctor_license, doctor_specialty, doctor_mobile_phone, clinic_name, clinic_address, clinic_phone,
+           corrected_from_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        existing.clinic_id,
+        existing.patient_id,
+        existing.consultation_id,
+        qr_token,
+        share_token,
+        share_expires_at,
+        JSON.stringify(items),
+        instructions ?? null,
+        existing.doctor_name,
+        existing.doctor_license,
+        existing.doctor_specialty,
+        existing.doctor_mobile_phone,
+        existing.clinic_name,
+        existing.clinic_address,
+        existing.clinic_phone,
+        existing.id
+      );
 
-  await logAudit({
-    clinicId: req.user.clinic_id,
-    actor: req.user.username,
-    action: "correct",
-    entity: "prescription",
-    entityId: existing.id,
-    detail: { new_id: result.lastInsertRowid },
+    await tx
+      .prepare(
+        `UPDATE prescriptions SET status = 'corregido', superseded_by_id = ?,
+          updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+         WHERE id = ?`
+      )
+      .run(result.lastInsertRowid, existing.id);
+
+    await logAudit({
+      clinicId: req.user.clinic_id,
+      actor: req.user.username,
+      action: "correct",
+      entity: "prescription",
+      entityId: existing.id,
+      detail: { new_id: result.lastInsertRowid },
+      tx,
+    });
+
+    return result.lastInsertRowid;
   });
 
-  const updated = await db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(result.lastInsertRowid);
+  const updated = await db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(newId);
   res.json({ ...updated, items: JSON.parse(updated.items_json) });
 });
 
@@ -255,22 +290,26 @@ prescriptionsRouter.delete("/:id", async (req, res) => {
     return res.status(400).json({ error: "Indica el motivo de la anulación (mínimo 5 caracteres)" });
   }
 
-  await db
-    .prepare(
-      `UPDATE prescriptions SET status = 'anulado', void_reason = ?, voided_by = ?, share_revoked = 1,
-        voided_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
-       WHERE id = ?`
-    )
-    .run(reason, req.user.username, req.params.id);
+  await withTransaction(async (tx) => {
+    await tx
+      .prepare(
+        `UPDATE prescriptions SET status = 'anulado', void_reason = ?, voided_by = ?, share_revoked = 1,
+          voided_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+         WHERE id = ?`
+      )
+      .run(reason, req.user.username, req.params.id);
 
-  await logAudit({
-    clinicId: req.user.clinic_id,
-    actor: req.user.username,
-    action: "void",
-    entity: "prescription",
-    entityId: req.params.id,
-    detail: { reason },
+    await logAudit({
+      clinicId: req.user.clinic_id,
+      actor: req.user.username,
+      action: "void",
+      entity: "prescription",
+      entityId: req.params.id,
+      detail: { reason },
+      tx,
+    });
   });
+
   const updated = await db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(req.params.id);
   res.json({ ...updated, items: JSON.parse(updated.items_json) });
 });

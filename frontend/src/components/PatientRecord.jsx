@@ -299,6 +299,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
     };
     try {
       let generatedRxId = null;
+      let allergyWarnings = [];
       if (editingNoteId) {
         await api.consultations.update(editingNoteId, payload);
         setEditingNoteId(null);
@@ -309,8 +310,18 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
           ...payload,
         });
         generatedRxId = created.generated_prescription_id;
+        allergyWarnings = created.allergy_warnings || [];
       }
       setNote(EMPTY_NOTE);
+      // GRAVE de la auditoría: alerta de alergias. Aquí la receta ya se
+      // generó (interrumpir a la mitad de guardar la nota para pedir
+      // confirmación complicaría demasiado el flujo), así que el aviso es
+      // posterior — el médico puede anularla de inmediato si no era la
+      // intención.
+      if (allergyWarnings.length > 0) {
+        const detail = allergyWarnings.map((c) => `• ${c.medication} (alergia registrada: ${c.allergy})`).join("\n");
+        alert(`⚠️ La receta generada incluye un medicamento que coincide con una alergia registrada del paciente:\n\n${detail}`);
+      }
       setSavedMsg(
         generatedRxId ? "✓ Nota guardada — se generó la receta automáticamente con los medicamentos del tratamiento." : true
       );

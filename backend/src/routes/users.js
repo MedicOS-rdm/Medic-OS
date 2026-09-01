@@ -1,6 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db, logAudit, suggestAvailableUsername } from "../db.js";
+import { passwordPolicyError, generateSecurePassword } from "../passwordPolicy.js";
 
 export const usersRouter = Router();
 
@@ -23,9 +24,12 @@ usersRouter.post("/", async (req, res) => {
   if (!username || !password || !full_name) {
     return res.status(400).json({ error: "username, password y full_name son obligatorios" });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
-  }
+  // GRAVE de la auditoría: esta ruta tenía su propia regla ("al menos 6
+  // caracteres"), distinta de la política reforzada usada en el resto de
+  // la app — ahora usan la misma función en todos los puntos de creación
+  // y cambio de contraseña.
+  const policyError = passwordPolicyError(password);
+  if (policyError) return res.status(400).json({ error: policyError });
 
   const existing = await db.prepare(`SELECT id FROM users WHERE username = ?`).get(username.trim().toLowerCase());
   if (existing) {
@@ -93,9 +97,12 @@ usersRouter.post("/:id/reset-password", async (req, res) => {
     return res.status(400).json({ error: "No puedes generar una clave temporal para una cuenta de médico desde aquí" });
   }
 
-  const newPassword = Math.random().toString(36).slice(-8);
+  const newPassword = generateSecurePassword();
   const password_hash = bcrypt.hashSync(newPassword, 10);
-  await db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(password_hash, target.id);
+  // Invalida de inmediato cualquier sesión abierta con la contraseña
+  // anterior (ver auth.js) — importante sobre todo si el reseteo se hizo
+  // porque se sospecha que la cuenta estaba comprometida.
+  await db.prepare(`UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?`).run(password_hash, target.id);
 
   await logAudit({
     clinicId: req.user.clinic_id,

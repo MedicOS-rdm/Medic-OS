@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, logAudit } from "../db.js";
+import { db, logAudit, withTransaction } from "../db.js";
 import { requireRole } from "../auth.js";
 
 export const patientsRouter = Router();
@@ -30,21 +30,25 @@ patientsRouter.get("/next-history-number", async (req, res) => {
   res.json({ suggestion: await nextClinicalHistoryNumber(req.user.clinic_id) });
 });
 
-// GET /api/patients?q=texto  -> lista / búsqueda, SIEMPRE dentro de la clínica del usuario
+// GET /api/patients?q=texto&include_archived=true  -> lista / búsqueda,
+// SIEMPRE dentro de la clínica del usuario. Por defecto NO incluye
+// pacientes archivados (los que antes se "eliminaban") — se puede pedir
+// explícitamente con include_archived=true para consultarlos.
 patientsRouter.get("/", async (req, res) => {
-  const { q } = req.query;
+  const { q, include_archived } = req.query;
+  const statusFilter = include_archived === "true" ? "" : `AND status = 'activo'`;
   let rows;
   if (q) {
     const like = `%${q}%`;
     rows = await db
       .prepare(
         `SELECT * FROM patients
-         WHERE clinic_id = ? AND (first_name LIKE ? OR last_name LIKE ? OR phone LIKE ?)
+         WHERE clinic_id = ? ${statusFilter} AND (first_name LIKE ? OR last_name LIKE ? OR phone LIKE ?)
          ORDER BY last_name, first_name`
       )
       .all(req.user.clinic_id, like, like, like);
   } else {
-    rows = await db.prepare(`SELECT * FROM patients WHERE clinic_id = ? ORDER BY last_name, first_name`).all(req.user.clinic_id);
+    rows = await db.prepare(`SELECT * FROM patients WHERE clinic_id = ? ${statusFilter} ORDER BY last_name, first_name`).all(req.user.clinic_id);
   }
   res.json(rows.map((p) => redactForRole(p, req.user.role)));
 });
@@ -171,11 +175,44 @@ patientsRouter.put("/:id", async (req, res) => {
   res.json(redactForRole(updated, req.user.role));
 });
 
+// DELETE /api/patients/:id -> CRÍTICO de la auditoría: ya no borra al
+// paciente ni su historia clínica. Archiva (requiere motivo) y lo saca de
+// las búsquedas normales, pero el expediente completo permanece intacto
+// y puede reactivarse.
 patientsRouter.delete("/:id", requireRole("medico"), async (req, res) => {
   const existing = await db.prepare(`SELECT * FROM patients WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Paciente no encontrado" });
+  if (existing.status === "archivado") return res.status(409).json({ error: "Este paciente ya estaba archivado" });
 
-  await db.prepare(`DELETE FROM patients WHERE id = ?`).run(req.params.id);
-  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "delete", entity: "patient", entityId: req.params.id });
-  res.status(204).end();
+  const reason = String(req.body?.reason || "").trim();
+  if (reason.length < 5) {
+    return res.status(400).json({ error: "Indica el motivo del archivado (mínimo 5 caracteres)" });
+  }
+
+  await withTransaction(async (tx) => {
+    await tx
+      .prepare(
+        `UPDATE patients SET status = 'archivado', archived_reason = ?, archived_by = ?,
+          archived_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+         WHERE id = ?`
+      )
+      .run(reason, req.user.username, req.params.id);
+    await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "archive", entity: "patient", entityId: req.params.id, detail: { reason }, tx });
+  });
+  res.json(redactForRole(await db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id), req.user.role));
+});
+
+// POST /api/patients/:id/reactivate -> revierte un archivado hecho por error.
+patientsRouter.post("/:id/reactivate", requireRole("medico"), async (req, res) => {
+  const existing = await db.prepare(`SELECT * FROM patients WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Paciente no encontrado" });
+  if (existing.status !== "archivado") return res.status(409).json({ error: "Este paciente no está archivado" });
+
+  await withTransaction(async (tx) => {
+    await tx
+      .prepare(`UPDATE patients SET status = 'activo', archived_reason = NULL, archived_at = NULL, archived_by = NULL WHERE id = ?`)
+      .run(req.params.id);
+    await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "reactivate", entity: "patient", entityId: req.params.id, tx });
+  });
+  res.json(redactForRole(await db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id), req.user.role));
 });

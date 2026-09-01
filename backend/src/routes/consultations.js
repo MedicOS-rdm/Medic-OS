@@ -1,44 +1,10 @@
 import { Router } from "express";
-import { db, logAudit, newQrToken } from "../db.js";
+import { db, logAudit, newQrToken, withTransaction } from "../db.js";
+import { newShareToken, newShareExpiry } from "./prescriptions.js";
+import { validateVitals, computeBmi } from "../validators.js";
+import { findAllergyConflicts } from "../validators.js";
 
 export const consultationsRouter = Router();
-
-function computeBmi(weight_kg, height_cm) {
-  if (!weight_kg || !height_cm) return null;
-  const heightM = height_cm / 100;
-  if (heightM <= 0) return null;
-  return Math.round((weight_kg / (heightM * heightM)) * 10) / 10;
-}
-
-// A-07 de la auditoría: no había ninguna validación de rango para los
-// signos vitales — se podía guardar una temperatura de 90°C o una
-// frecuencia cardiaca de 900 lpm sin que el sistema lo notara (typo del
-// médico al escribir rápido, o un valor mal pegado). Estos rangos son
-// deliberadamente amplios (cubren casos clínicos extremos reales, no solo
-// "lo normal") — la intención es atrapar errores de tipeo evidentes, no
-// hacer juicios clínicos.
-const VITAL_RANGES = {
-  heart_rate: { min: 20, max: 300, label: "la frecuencia cardiaca (lpm)" },
-  temperature_c: { min: 25, max: 45, label: "la temperatura (°C)" },
-  weight_kg: { min: 0.3, max: 400, label: "el peso (kg)" },
-  height_cm: { min: 15, max: 250, label: "la talla (cm)" },
-};
-const BLOOD_PRESSURE_RE = /^\d{2,3}\/\d{2,3}$/;
-
-function validateVitals(body) {
-  for (const [field, range] of Object.entries(VITAL_RANGES)) {
-    const value = body[field];
-    if (value === undefined || value === null || value === "") continue;
-    const num = Number(value);
-    if (Number.isNaN(num) || num < range.min || num > range.max) {
-      return `Revisa ${range.label}: el valor ingresado no parece válido.`;
-    }
-  }
-  if (body.blood_pressure && !BLOOD_PRESSURE_RE.test(String(body.blood_pressure).trim())) {
-    return 'La presión arterial debe tener el formato "120/80".';
-  }
-  return null;
-}
 
 // Campos JSON: guardamos como texto y parseamos al leer. Si llega algo
 // inválido (o vacío), lo tratamos como "sin datos" en vez de tronar.
@@ -133,100 +99,130 @@ consultationsRouter.post("/consultations", async (req, res) => {
 
   const bmi = computeBmi(weight_kg, height_cm);
 
-  const result = await db
-    .prepare(
-      `INSERT INTO consultations
-        (clinic_id, patient_id, appointment_id,
-         chief_complaint, present_illness, relevant_history, subjective,
-         blood_pressure, heart_rate, temperature_c, weight_kg, height_cm, bmi,
-         physical_exam_json, clinical_findings,
-         diagnosis_code, diagnosis_label, clinical_assessment, additional_diagnoses_json,
-         treatment_meds_json, non_pharmacological_treatment, studies_lab_json, studies_imaging_json,
-         patient_education, warning_signs, follow_up_interval, follow_up_date, plan)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      req.user.clinic_id,
-      patient_id,
-      appointment_id ?? null,
-      chief_complaint ?? null,
-      present_illness ?? null,
-      relevant_history ?? null,
-      subjective ?? null,
-      blood_pressure ?? null,
-      heart_rate ?? null,
-      temperature_c ?? null,
-      weight_kg ?? null,
-      height_cm ?? null,
-      bmi,
-      toJson(physical_exam),
-      clinical_findings ?? null,
-      diagnosis_code ?? null,
-      diagnosis_label ?? null,
-      clinical_assessment ?? null,
-      toJson(additional_diagnoses),
-      toJson(treatment_meds),
-      non_pharmacological_treatment ?? null,
-      toJson(studies_lab),
-      toJson(studies_imaging),
-      patient_education ?? null,
-      warning_signs ?? null,
-      follow_up_interval ?? null,
-      follow_up_date ?? null,
-      plan ?? null
-    );
-
-  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "consultation", entityId: result.lastInsertRowid });
-
-  if (appointment_id) {
-    await db
-      .prepare(`UPDATE appointments SET status = 'finalizada', updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
-      .run(appointment_id);
-  }
-
-  const consultation = await db.prepare(`SELECT * FROM consultations WHERE id = ?`).get(result.lastInsertRowid);
-
-  // Si el médico cargó medicamentos en "P · Tratamiento", generamos la
-  // receta automáticamente con esos mismos medicamentos, ligada a esta
-  // consulta — así no hay que volver a escribirlos en "Nueva receta".
-  let generatedPrescriptionId = null;
-  if (Array.isArray(treatment_meds) && treatment_meds.length > 0) {
-    const items = treatment_meds.map(({ generic_name, commercial_name, presentation, dose, frequency, duration }) => ({
-      generic_name,
-      commercial_name: commercial_name ?? "",
-      presentation: presentation ?? "",
-      dose: dose ?? "",
-      frequency: frequency ?? "",
-      duration: duration ?? "",
-    }));
-
-    const doctor = await db.prepare(`SELECT * FROM doctor_profile WHERE clinic_id = ?`).get(req.user.clinic_id);
-    const qr_token = newQrToken();
-    const rxResult = await db
+  // CRÍTICO POTENCIAL de la auditoría: este flujo escribe hasta TRES cosas
+  // relacionadas (la nota, el cambio de estado de la cita, y la receta
+  // autogenerada si el médico cargó medicamentos) — antes cada una era una
+  // operación suelta; si el proceso fallaba a la mitad (ej. se caía la
+  // conexión justo después de crear la nota), la cita podía quedar sin
+  // marcarse "finalizada" o la receta nunca se generaba, sin que quedara
+  // registro de que algo se cortó a la mitad. Ahora las tres corren en una
+  // sola transacción.
+  const { consultationId, generatedPrescriptionId, allergyWarnings } = await withTransaction(async (tx) => {
+    const result = await tx
       .prepare(
-        `INSERT INTO prescriptions
-          (clinic_id, patient_id, consultation_id, qr_token, items_json, instructions,
-           doctor_name, doctor_specialty, doctor_license, clinic_name, clinic_address, clinic_phone)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO consultations
+          (clinic_id, patient_id, appointment_id,
+           chief_complaint, present_illness, relevant_history, subjective,
+           blood_pressure, heart_rate, temperature_c, weight_kg, height_cm, bmi,
+           physical_exam_json, clinical_findings,
+           diagnosis_code, diagnosis_label, clinical_assessment, additional_diagnoses_json,
+           treatment_meds_json, non_pharmacological_treatment, studies_lab_json, studies_imaging_json,
+           patient_education, warning_signs, follow_up_interval, follow_up_date, plan)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         req.user.clinic_id,
         patient_id,
-        consultation.id,
-        qr_token,
-        JSON.stringify(items),
-        non_pharmacological_treatment ? `Tratamiento no farmacológico: ${non_pharmacological_treatment}` : null,
-        doctor?.full_name ?? null,
-        doctor?.specialty ?? null,
-        doctor?.professional_license ?? null,
-        doctor?.clinic_name ?? null,
-        doctor?.clinic_address ?? null,
-        doctor?.clinic_phone ?? null
+        appointment_id ?? null,
+        chief_complaint ?? null,
+        present_illness ?? null,
+        relevant_history ?? null,
+        subjective ?? null,
+        blood_pressure ?? null,
+        heart_rate ?? null,
+        temperature_c ?? null,
+        weight_kg ?? null,
+        height_cm ?? null,
+        bmi,
+        toJson(physical_exam),
+        clinical_findings ?? null,
+        diagnosis_code ?? null,
+        diagnosis_label ?? null,
+        clinical_assessment ?? null,
+        toJson(additional_diagnoses),
+        toJson(treatment_meds),
+        non_pharmacological_treatment ?? null,
+        toJson(studies_lab),
+        toJson(studies_imaging),
+        patient_education ?? null,
+        warning_signs ?? null,
+        follow_up_interval ?? null,
+        follow_up_date ?? null,
+        plan ?? null
       );
-    generatedPrescriptionId = rxResult.lastInsertRowid;
-  }
 
-  res.status(201).json({ ...hydrateConsultation(consultation), generated_prescription_id: generatedPrescriptionId });
+    await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "consultation", entityId: result.lastInsertRowid, tx });
+
+    if (appointment_id) {
+      await tx
+        .prepare(`UPDATE appointments SET status = 'finalizada', updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?`)
+        .run(appointment_id);
+    }
+
+    // Si el médico cargó medicamentos en "P · Tratamiento", generamos la
+    // receta automáticamente con esos mismos medicamentos, ligada a esta
+    // consulta — así no hay que volver a escribirlos en "Nueva receta".
+    let generatedPrescriptionId = null;
+    let allergyWarnings = [];
+    if (Array.isArray(treatment_meds) && treatment_meds.length > 0) {
+      const items = treatment_meds.map(({ generic_name, commercial_name, presentation, dose, frequency, duration }) => ({
+        generic_name,
+        commercial_name: commercial_name ?? "",
+        presentation: presentation ?? "",
+        dose: dose ?? "",
+        frequency: frequency ?? "",
+        duration: duration ?? "",
+      }));
+
+      // GRAVE de la auditoría: alerta de alergias. Aquí (a diferencia de
+      // "Nueva receta") NO se bloquea la creación — interrumpir a la mitad
+      // de guardar la nota completa para pedir una confirmación aparte
+      // complicaría demasiado el flujo — pero SÍ se avisa de vuelta al
+      // frontend para que se lo muestre al médico apenas termine de
+      // guardar.
+      const patientForAllergyCheck = await tx.prepare(`SELECT allergies FROM patients WHERE id = ?`).get(patient_id);
+      allergyWarnings = findAllergyConflicts(patientForAllergyCheck?.allergies, items);
+
+      const doctor = await tx.prepare(`SELECT * FROM doctor_profile WHERE clinic_id = ?`).get(req.user.clinic_id);
+      const qr_token = newQrToken();
+      // Corregido: esta receta autogenerada se quedaba SIN share_token
+      // (a diferencia de una receta creada desde "Nueva receta"), lo que
+      // rompía en silencio el enlace de WhatsApp / descarga pública para
+      // este caso concreto — el enlace se armaba con un token nulo.
+      const share_token = newShareToken();
+      const share_expires_at = newShareExpiry();
+      const rxResult = await tx
+        .prepare(
+          `INSERT INTO prescriptions
+            (clinic_id, patient_id, consultation_id, qr_token, share_token, share_expires_at, items_json, instructions,
+             doctor_name, doctor_specialty, doctor_license, clinic_name, clinic_address, clinic_phone)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          req.user.clinic_id,
+          patient_id,
+          result.lastInsertRowid,
+          qr_token,
+          share_token,
+          share_expires_at,
+          JSON.stringify(items),
+          non_pharmacological_treatment ? `Tratamiento no farmacológico: ${non_pharmacological_treatment}` : null,
+          doctor?.full_name ?? null,
+          doctor?.specialty ?? null,
+          doctor?.professional_license ?? null,
+          doctor?.clinic_name ?? null,
+          doctor?.clinic_address ?? null,
+          doctor?.clinic_phone ?? null
+        );
+      await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "prescription", entityId: rxResult.lastInsertRowid, tx });
+      generatedPrescriptionId = rxResult.lastInsertRowid;
+    }
+
+    return { consultationId: result.lastInsertRowid, generatedPrescriptionId, allergyWarnings };
+  });
+
+  const consultation = await db.prepare(`SELECT * FROM consultations WHERE id = ?`).get(consultationId);
+  res.status(201).json({ ...hydrateConsultation(consultation), generated_prescription_id: generatedPrescriptionId, allergy_warnings: allergyWarnings });
 });
 
 // PUT /api/consultations/:id -> C-04 de la auditoría: igual que
@@ -278,68 +274,72 @@ consultationsRouter.put("/consultations/:id", async (req, res) => {
 
   const bmi = computeBmi(weight_kg, height_cm);
 
-  const result = await db
-    .prepare(
-      `INSERT INTO consultations
-        (clinic_id, patient_id, appointment_id,
-         chief_complaint, present_illness, relevant_history, subjective,
-         blood_pressure, heart_rate, temperature_c, weight_kg, height_cm, bmi,
-         physical_exam_json, clinical_findings,
-         diagnosis_code, diagnosis_label, clinical_assessment, additional_diagnoses_json,
-         treatment_meds_json, non_pharmacological_treatment, studies_lab_json, studies_imaging_json,
-         patient_education, warning_signs, follow_up_interval, follow_up_date, plan,
-         corrected_from_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      existing.clinic_id,
-      existing.patient_id,
-      existing.appointment_id,
-      chief_complaint ?? null,
-      present_illness ?? null,
-      relevant_history ?? null,
-      subjective ?? null,
-      blood_pressure ?? null,
-      heart_rate ?? null,
-      temperature_c ?? null,
-      weight_kg ?? null,
-      height_cm ?? null,
-      bmi,
-      toJson(physical_exam),
-      clinical_findings ?? null,
-      diagnosis_code ?? null,
-      diagnosis_label ?? null,
-      clinical_assessment ?? null,
-      toJson(additional_diagnoses),
-      toJson(treatment_meds),
-      non_pharmacological_treatment ?? null,
-      toJson(studies_lab),
-      toJson(studies_imaging),
-      patient_education ?? null,
-      warning_signs ?? null,
-      follow_up_interval ?? null,
-      follow_up_date ?? null,
-      plan ?? null,
-      existing.id
-    );
+  const result = await withTransaction(async (tx) => {
+    const inserted = await tx
+      .prepare(
+        `INSERT INTO consultations
+          (clinic_id, patient_id, appointment_id,
+           chief_complaint, present_illness, relevant_history, subjective,
+           blood_pressure, heart_rate, temperature_c, weight_kg, height_cm, bmi,
+           physical_exam_json, clinical_findings,
+           diagnosis_code, diagnosis_label, clinical_assessment, additional_diagnoses_json,
+           treatment_meds_json, non_pharmacological_treatment, studies_lab_json, studies_imaging_json,
+           patient_education, warning_signs, follow_up_interval, follow_up_date, plan,
+           corrected_from_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        existing.clinic_id,
+        existing.patient_id,
+        existing.appointment_id,
+        chief_complaint ?? null,
+        present_illness ?? null,
+        relevant_history ?? null,
+        subjective ?? null,
+        blood_pressure ?? null,
+        heart_rate ?? null,
+        temperature_c ?? null,
+        weight_kg ?? null,
+        height_cm ?? null,
+        bmi,
+        toJson(physical_exam),
+        clinical_findings ?? null,
+        diagnosis_code ?? null,
+        diagnosis_label ?? null,
+        clinical_assessment ?? null,
+        toJson(additional_diagnoses),
+        toJson(treatment_meds),
+        non_pharmacological_treatment ?? null,
+        toJson(studies_lab),
+        toJson(studies_imaging),
+        patient_education ?? null,
+        warning_signs ?? null,
+        follow_up_interval ?? null,
+        follow_up_date ?? null,
+        plan ?? null,
+        existing.id
+      );
 
-  await db
-    .prepare(
-      `UPDATE consultations SET status = 'corregido', superseded_by_id = ?,
-        updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
-       WHERE id = ?`
-    )
-    .run(result.lastInsertRowid, existing.id);
+    await tx
+      .prepare(
+        `UPDATE consultations SET status = 'corregido', superseded_by_id = ?,
+          updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+         WHERE id = ?`
+      )
+      .run(inserted.lastInsertRowid, existing.id);
 
-  await logAudit({
-    clinicId: req.user.clinic_id,
-    actor: req.user.username,
-    action: "correct",
-    entity: "consultation",
-    entityId: existing.id,
-    detail: { new_id: result.lastInsertRowid },
+    await logAudit({
+      clinicId: req.user.clinic_id,
+      actor: req.user.username,
+      action: "correct",
+      entity: "consultation",
+      entityId: existing.id,
+      detail: { new_id: inserted.lastInsertRowid },
+      tx,
+    });
+    return inserted.lastInsertRowid;
   });
-  res.json(hydrateConsultation(await db.prepare(`SELECT * FROM consultations WHERE id = ?`).get(result.lastInsertRowid)));
+  res.json(hydrateConsultation(await db.prepare(`SELECT * FROM consultations WHERE id = ?`).get(result)));
 });
 
 // DELETE /api/consultations/:id -> C-04: anula (con motivo obligatorio) en
@@ -359,21 +359,24 @@ consultationsRouter.delete("/consultations/:id", async (req, res) => {
     return res.status(400).json({ error: "Indica el motivo de la anulación (mínimo 5 caracteres)" });
   }
 
-  await db
-    .prepare(
-      `UPDATE consultations SET status = 'anulado', void_reason = ?, voided_by = ?,
-        voided_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
-       WHERE id = ?`
-    )
-    .run(reason, req.user.username, req.params.id);
+  await withTransaction(async (tx) => {
+    await tx
+      .prepare(
+        `UPDATE consultations SET status = 'anulado', void_reason = ?, voided_by = ?,
+          voided_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+         WHERE id = ?`
+      )
+      .run(reason, req.user.username, req.params.id);
 
-  await logAudit({
-    clinicId: req.user.clinic_id,
-    actor: req.user.username,
-    action: "void",
-    entity: "consultation",
-    entityId: req.params.id,
-    detail: { reason },
+    await logAudit({
+      clinicId: req.user.clinic_id,
+      actor: req.user.username,
+      action: "void",
+      entity: "consultation",
+      entityId: req.params.id,
+      detail: { reason },
+      tx,
+    });
   });
   res.json(hydrateConsultation(await db.prepare(`SELECT * FROM consultations WHERE id = ?`).get(req.params.id)));
 });
