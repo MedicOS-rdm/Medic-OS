@@ -33,4 +33,19 @@ jobs:
         run: npm ci
 
       - name: Ejecutar pruebas automatizadas
+        # DATABASE_URL: db.js exige esta variable con un `throw` al
+        # importarse (para nunca arrancar en producción sin base de
+        # datos configurada). tests/auth.test.js importa auth.js, que a
+        # su vez importa db.js — aunque esa prueba en concreto solo
+        # ejercita una función pura (timingSafeEqualString) y nunca hace
+        # una consulta real. El Pool de `pg` es perezoso (no se conecta
+        # hasta la primera consulta), así que basta con una cadena de
+        # conexión con formato válido, aunque no exista de verdad, para
+        # que el import no truene. La prueba de integración real contra
+        # Postgres (db.transaction.test.js) usa su propia variable,
+        # TEST_DATABASE_URL, y se omite sola si no está definida — no la
+        # configuramos aquí a propósito, para no depender de un Postgres
+        # real solo para correr las pruebas puras en cada push.
+        env:
+          DATABASE_URL: "postgres://ci:ci@localhost:5432/ci_placeholder"
         run: npm test
