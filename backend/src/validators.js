@@ -58,6 +58,58 @@ export function computeBmi(weight_kg, height_cm) {
   return Math.round((weight_kg / (heightM * heightM)) * 10) / 10;
 }
 
+// GRAVE de la auditoría ("las fechas se validan solo por formato y pueden
+// aceptar fechas calendario imposibles"): centralizado aquí para que
+// tanto el alta interna de pacientes (patients.js) como la reserva
+// pública (publicBooking.js) validen la fecha de nacimiento exactamente
+// igual, en vez de duplicar (y arriesgarse a desincronizar) la misma
+// regla en dos archivos.
+export function validateBirthDate(birth_date) {
+  if (birth_date === undefined || birth_date === null || birth_date === "") return null;
+  if (!isValidIsoDate(birth_date)) {
+    return "birth_date no es una fecha calendario válida (formato AAAA-MM-DD).";
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  if (birth_date > today) {
+    return "birth_date no puede ser una fecha futura.";
+  }
+  if (birth_date < "1900-01-01") {
+    return "birth_date no es una fecha de nacimiento razonable.";
+  }
+  return null;
+}
+
+// Nueva página pública de reservas: horario semanal que configura el
+// médico (0=domingo … 6=sábado, uno o más rangos ["HH:MM","HH:MM"] por
+// día). Se valida aquí para poder probarlo aislado y para compartirlo
+// entre doctorProfile.js (quien lo guarda) y publicBooking.js (quien lo
+// usa para calcular turnos disponibles).
+const WEEKDAY_KEYS = ["0", "1", "2", "3", "4", "5", "6"];
+const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+export function validateBookingSchedule(schedule) {
+  if (schedule === null || schedule === undefined) return null; // sin horario configurado aún
+  if (typeof schedule !== "object" || Array.isArray(schedule)) {
+    return "El horario debe ser un objeto con un arreglo de rangos por cada día de la semana.";
+  }
+  for (const key of Object.keys(schedule)) {
+    if (!WEEKDAY_KEYS.includes(key)) {
+      return `Día de la semana inválido: "${key}" (usa 0=domingo … 6=sábado).`;
+    }
+    const ranges = schedule[key];
+    if (!Array.isArray(ranges)) return `El horario del día ${key} debe ser un arreglo de rangos.`;
+    for (const range of ranges) {
+      if (!Array.isArray(range) || range.length !== 2 || !HHMM_RE.test(range[0]) || !HHMM_RE.test(range[1])) {
+        return `Uno de los rangos horarios del día ${key} no tiene el formato ["HH:MM","HH:MM"].`;
+      }
+      if (range[0] >= range[1]) {
+        return `En el día ${key}, la hora de inicio (${range[0]}) debe ser antes que la de fin (${range[1]}).`;
+      }
+    }
+  }
+  return null;
+}
+
 // Días entre dos fechas AAAA-MM-DD, ambas inclusive (para certificados:
 // del 1 al 3 de un mes son 3 días, no 2).
 export function daysBetweenInclusive(dateFrom, dateTo) {

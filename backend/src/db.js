@@ -626,6 +626,44 @@ export async function initDb() {
   await addCheckConstraintNotValid("consultations", "consultations_weight_check", "weight_kg BETWEEN 0.3 AND 400");
   await addCheckConstraintNotValid("consultations", "consultations_height_check", "height_cm BETWEEN 15 AND 250");
 
+  // Nuevo rol "enfermera": el médico ahora puede dar de alta UNA cuenta
+  // de asistente que sea secretaria O enfermera (antes el CHECK de la
+  // base solo permitía 'medico'/'secretaria' — un ALTER TABLE normal no
+  // puede "editar" un CHECK existente, hay que quitarlo y ponerlo de
+  // nuevo con el valor agregado).
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_role_check') THEN
+        ALTER TABLE users DROP CONSTRAINT users_role_check;
+      END IF;
+      ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('medico', 'secretaria', 'enfermera'));
+    END $$;
+  `);
+
+  // Reserva pública de citas: el médico decide si activa la reserva en
+  // línea, cuánto dura cada turno por defecto, y su horario semanal de
+  // atención (JSON: { "0": [["08:00","13:00"]], "1": [...], ... } con
+  // 0 = domingo .. 6 = sábado, cada día con 0 o más rangos horarios).
+  await ensureColumn("doctor_profile", "booking_enabled", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn("doctor_profile", "booking_slot_minutes", "INTEGER NOT NULL DEFAULT 20");
+  await ensureColumn("doctor_profile", "booking_schedule_json", "TEXT");
+
+  // Signos vitales de ingreso: los registra la enfermera (o el médico) al
+  // recibir al paciente, ANTES de la consulta — quedan ligados a la cita,
+  // y el médico los ve/retoma al abrir la nota clínica de esa cita en vez
+  // de tener que volver a tomarlos.
+  await ensureColumn("appointments", "intake_weight_kg", "REAL");
+  await ensureColumn("appointments", "intake_height_cm", "REAL");
+  await ensureColumn("appointments", "intake_blood_pressure", "TEXT");
+  await ensureColumn("appointments", "intake_heart_rate", "INTEGER");
+  await ensureColumn("appointments", "intake_temperature_c", "REAL");
+  await ensureColumn("appointments", "intake_recorded_by", "TEXT");
+  await ensureColumn("appointments", "intake_recorded_at", "TEXT");
+  // Marca las citas creadas desde la página pública de reservas, para que
+  // el consultorio pueda distinguirlas de un vistazo en la agenda.
+  await ensureColumn("appointments", "source", "TEXT NOT NULL DEFAULT 'interno'");
+
   // CRÍTICO POTENCIAL de la auditoría: no había ninguna protección contra
   // dos citas que se traslapan en el mismo horario, ni siquiera frente a
   // dos solicitudes simultáneas (una validación solo en el backend, antes

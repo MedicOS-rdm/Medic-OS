@@ -19,11 +19,31 @@ usersRouter.get("/", async (req, res) => {
   res.json(rows);
 });
 
+const ASSISTANT_ROLES = ["secretaria", "enfermera"];
+
 usersRouter.post("/", async (req, res) => {
-  const { username, password, full_name } = req.body;
+  const { username, password, full_name, role } = req.body;
   if (!username || !password || !full_name) {
     return res.status(400).json({ error: "username, password y full_name son obligatorios" });
   }
+  // Nuevo rol "enfermera": el médico elige qué tipo de cuenta de asistente
+  // da de alta. Sigue habiendo como máximo UNA cuenta de asistente por
+  // clínica (sea secretaria o enfermera) — antes no había ningún límite
+  // explícito en el backend, así que se agrega ahora junto con la opción
+  // de elegir el rol.
+  const finalRole = role || "secretaria";
+  if (!ASSISTANT_ROLES.includes(finalRole)) {
+    return res.status(400).json({ error: `role debe ser uno de: ${ASSISTANT_ROLES.join(", ")}` });
+  }
+  const { count } = await db
+    .prepare(`SELECT COUNT(*) AS count FROM users WHERE clinic_id = ? AND role IN ('secretaria', 'enfermera')`)
+    .get(req.user.clinic_id);
+  if (Number(count) >= 1) {
+    return res.status(409).json({
+      error: "Ya existe una cuenta de asistente (secretaria o enfermera) en esta clínica. Elimínala primero si quieres reemplazarla por otra.",
+    });
+  }
+
   // GRAVE de la auditoría: esta ruta tenía su propia regla ("al menos 6
   // caracteres"), distinta de la política reforzada usada en el resto de
   // la app — ahora usan la misma función en todos los puntos de creación
@@ -41,8 +61,8 @@ usersRouter.post("/", async (req, res) => {
 
   const password_hash = bcrypt.hashSync(password, 10);
   const result = await db
-    .prepare(`INSERT INTO users (clinic_id, username, password_hash, full_name, role) VALUES (?, ?, ?, ?, 'secretaria')`)
-    .run(req.user.clinic_id, username.trim().toLowerCase(), password_hash, full_name);
+    .prepare(`INSERT INTO users (clinic_id, username, password_hash, full_name, role) VALUES (?, ?, ?, ?, ?)`)
+    .run(req.user.clinic_id, username.trim().toLowerCase(), password_hash, full_name, finalRole);
 
   await logAudit({
     clinicId: req.user.clinic_id,
@@ -50,7 +70,7 @@ usersRouter.post("/", async (req, res) => {
     action: "create",
     entity: "user",
     entityId: result.lastInsertRowid,
-    detail: { role: "secretaria" },
+    detail: { role: finalRole },
   });
 
   res.status(201).json(

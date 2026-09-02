@@ -1043,6 +1043,14 @@ textarea {
   background: var(--accent-soft);
 }
 
+button.reminder-tag.sent {
+  cursor: pointer;
+}
+
+.source-tag {
+  color: var(--accent);
+}
+
 .reminder-tag.pending {
   color: #6b6250;
   border-color: var(--line);

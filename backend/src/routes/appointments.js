@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { db, logAudit, withTransaction, VALID_STATUSES } from "../db.js";
+import { requireRole } from "../auth.js";
+import { validateVitals } from "../validators.js";
 
 export const appointmentsRouter = Router();
 
@@ -17,7 +19,7 @@ const PG_EXCLUSION_VIOLATION = "23P01";
 // base de datos) — pero sí da un mensaje de error claro en el caso común
 // (sin condición de carrera), en vez de que el usuario solo vea un error
 // genérico de base de datos.
-async function findOverlap(clinicId, startTime, durationMinutes, excludeId) {
+export async function findOverlap(clinicId, startTime, durationMinutes, excludeId) {
   const rows = await db
     .prepare(
       `SELECT id FROM appointments
@@ -54,7 +56,10 @@ appointmentsRouter.get("/", async (req, res) => {
       )
       .all(req.user.clinic_id);
   }
-  if (req.user.role !== "medico") {
+  // Nuevo rol "enfermera": también necesita ver alergias del paciente en
+  // la agenda (es quien hace el triaje) — solo la secretaria se queda sin
+  // este dato clínico.
+  if (req.user.role !== "medico" && req.user.role !== "enfermera") {
     rows = rows.map(({ allergies, ...rest }) => rest);
   }
   res.json(rows);
@@ -167,6 +172,41 @@ appointmentsRouter.put("/:id", async (req, res) => {
     }
     throw err;
   }
+  res.json(await db.prepare(`SELECT * FROM appointments WHERE id = ?`).get(req.params.id));
+});
+
+// PUT /api/appointments/:id/intake -> signos vitales de ingreso (nuevo rol
+// "enfermera"): la enfermera (o el médico) los registra al recibir al
+// paciente, ANTES de la consulta. Queda ligado a la cita, no a una nota
+// clínica — la secretaria no tiene acceso a esta ruta.
+appointmentsRouter.put("/:id/intake", requireRole("medico", "enfermera"), async (req, res) => {
+  const existing = await db.prepare(`SELECT id, patient_id FROM appointments WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Cita no encontrada" });
+
+  const vitalsError = validateVitals(req.body);
+  if (vitalsError) return res.status(400).json({ error: vitalsError });
+
+  const { weight_kg, height_cm, blood_pressure, heart_rate, temperature_c } = req.body;
+  await withTransaction(async (tx) => {
+    await tx
+      .prepare(
+        `UPDATE appointments SET
+          intake_weight_kg = ?, intake_height_cm = ?, intake_blood_pressure = ?,
+          intake_heart_rate = ?, intake_temperature_c = ?,
+          intake_recorded_by = ?, intake_recorded_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+         WHERE id = ?`
+      )
+      .run(weight_kg ?? null, height_cm ?? null, blood_pressure ?? null, heart_rate ?? null, temperature_c ?? null, req.user.username, req.params.id);
+    await logAudit({
+      clinicId: req.user.clinic_id,
+      actor: req.user.username,
+      action: "intake_vitals",
+      entity: "appointment",
+      entityId: req.params.id,
+      tx,
+    });
+  });
+
   res.json(await db.prepare(`SELECT * FROM appointments WHERE id = ?`).get(req.params.id));
 });
 

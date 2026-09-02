@@ -6,7 +6,7 @@ function formatTime(iso) {
   return d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function AgendaView({ appointments, loading, isMedico, onChangeStatus, onOpenRecord, onSendReminder }) {
+export default function AgendaView({ appointments, loading, isMedico, canRecordVitals, onChangeStatus, onOpenRecord, onOpenVitals, onSendReminder }) {
   const [sendingId, setSendingId] = useState(null);
   const [sentFeedback, setSentFeedback] = useState({}); // { [apptId]: 'ok' | 'error' }
 
@@ -57,7 +57,25 @@ export default function AgendaView({ appointments, loading, isMedico, onChangeSt
               <div className="appt-meta">
                 {appt.visit_type === "primera_vez" ? "Primera vez" : "Subsecuente"} · {appt.duration_minutes} min
                 {appt.reason ? ` · ${appt.reason}` : ""}
+                {/* Nueva página pública de reservas: distingue de un vistazo
+                    las citas que agendó el propio paciente por internet. */}
+                {appt.source === "reserva_publica" && <span className="source-tag"> · 🌐 Reserva en línea</span>}
               </div>
+              {/* Nuevo rol "enfermera": puede registrar signos vitales de
+                  ingreso sin necesidad de abrir la nota clínica completa. */}
+              {canRecordVitals && (
+                <div className="reminder-row">
+                  {appt.intake_recorded_at ? (
+                    <button type="button" className="reminder-tag sent" onClick={() => onOpenVitals(appt)}>
+                      ✓ Signos vitales registrados
+                    </button>
+                  ) : (
+                    <button type="button" className="reminder-tag pending" onClick={() => onOpenVitals(appt)}>
+                      Registrar signos vitales
+                    </button>
+                  )}
+                </div>
+              )}
 
               {["programada", "confirmada"].includes(appt.status) && (
                 <div className="reminder-row">

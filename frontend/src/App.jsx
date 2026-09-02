@@ -10,8 +10,12 @@ import UsersModal from "./components/UsersModal.jsx";
 import ChangePasswordModal from "./components/ChangePasswordModal.jsx";
 import ReminderSettingsModal from "./components/ReminderSettingsModal.jsx";
 import NotificationSettingsModal from "./components/NotificationSettingsModal.jsx";
+import IntakeVitalsModal from "./components/IntakeVitalsModal.jsx";
+import BookingSettingsModal from "./components/BookingSettingsModal.jsx";
 import Footer from "./components/Footer.jsx";
 import { localISODate } from "./utils/date.js";
+
+const ROLE_LABELS = { medico: "Médico", secretaria: "Secretaria", enfermera: "Enfermera" };
 
 function todayISO() {
   return localISODate();
@@ -58,6 +62,11 @@ export default function App() {
   }
 
   const isMedico = user?.role === "medico";
+  // Nuevo rol "enfermera": agenda igual que secretaria, y además puede
+  // registrar signos vitales y editar alergias/antecedentes del paciente
+  // — pero no accede a la nota clínica, recetas ni certificados (eso
+  // sigue siendo exclusivo del médico).
+  const isEnfermera = user?.role === "enfermera";
 
   // ---------- Datos de la app ----------
   const [date, setDate] = useState(todayISO());
@@ -73,6 +82,9 @@ export default function App() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+  const [showBookingSettings, setShowBookingSettings] = useState(false);
+  const [editingPatient, setEditingPatient] = useState(null); // paciente que edita la enfermera (alergias/antecedentes)
+  const [intakeAppt, setIntakeAppt] = useState(null); // cita para la que se registran signos vitales
   const [clinicLogo, setClinicLogo] = useState(null);
 
   const loadClinicLogo = useCallback(async () => {
@@ -180,8 +192,11 @@ export default function App() {
           {filteredPatients.map((p) => (
             <li
               key={p.id}
-              className={isMedico ? "clickable" : ""}
-              onClick={() => isMedico && setRecord({ patientId: p.id, appointmentId: null })}
+              className={isMedico || isEnfermera ? "clickable" : ""}
+              onClick={() => {
+                if (isMedico) setRecord({ patientId: p.id, appointmentId: null });
+                else if (isEnfermera) setEditingPatient(p);
+              }}
             >
               <span>
                 {p.first_name} {p.last_name}
@@ -201,6 +216,9 @@ export default function App() {
               <button className="btn-ghost full" onClick={() => setShowUsers(true)}>
                 Gestionar usuarios
               </button>
+              <button className="btn-ghost full" onClick={() => setShowBookingSettings(true)}>
+                Reserva en línea
+              </button>
               <button className="btn-ghost full" onClick={() => setShowReminders(true)}>
                 Recordatorios
               </button>
@@ -212,7 +230,7 @@ export default function App() {
           <div className="user-badge">
             <div>
               <strong>{user.full_name}</strong>
-              <span className="user-role-tag">{isMedico ? "Médico" : "Secretaria"}</span>
+              <span className="user-role-tag">{ROLE_LABELS[user.role] || user.role}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
               <button className="link-btn" onClick={() => setShowChangePassword(true)}>
@@ -264,8 +282,10 @@ export default function App() {
               appointments={appointments}
               loading={loading}
               isMedico={isMedico}
+              canRecordVitals={isMedico || isEnfermera}
               onChangeStatus={handleStatusChange}
               onOpenRecord={(patientId, appointmentId) => isMedico && setRecord({ patientId, appointmentId })}
+              onOpenVitals={(appt) => setIntakeAppt(appt)}
               onSendReminder={handleSendReminder}
             />
           </>
@@ -275,6 +295,7 @@ export default function App() {
       {showPatientModal && (
         <PatientModal
           isMedico={isMedico}
+          canEditClinical={isMedico || isEnfermera}
           onClose={() => setShowPatientModal(false)}
           onCreated={() => {
             setShowPatientModal(false);
@@ -317,6 +338,34 @@ export default function App() {
 
       {showNotificationSettings && isMedico && (
         <NotificationSettingsModal onClose={() => setShowNotificationSettings(false)} />
+      )}
+
+      {showBookingSettings && isMedico && <BookingSettingsModal onClose={() => setShowBookingSettings(false)} />}
+
+      {/* Nuevo rol "enfermera": edita alergias/antecedentes de un paciente
+          existente sin acceder al resto del expediente clínico. */}
+      {editingPatient && (
+        <PatientModal
+          patient={editingPatient}
+          canEditClinical={isEnfermera}
+          onClose={() => setEditingPatient(null)}
+          onUpdated={() => {
+            setEditingPatient(null);
+            loadPatients();
+          }}
+        />
+      )}
+
+      {/* Nuevo rol "enfermera": signos vitales de ingreso ligados a la cita. */}
+      {intakeAppt && (
+        <IntakeVitalsModal
+          appointment={intakeAppt}
+          onClose={() => setIntakeAppt(null)}
+          onSaved={() => {
+            setIntakeAppt(null);
+            loadAppointments(date);
+          }}
+        />
       )}
 
       <Footer />

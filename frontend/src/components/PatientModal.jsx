@@ -22,7 +22,10 @@ const EMPTY = {
 };
 
 // patient: si se pasa, el modal edita ese paciente en vez de crear uno nuevo.
-export default function PatientModal({ isMedico = true, patient = null, onClose, onCreated, onUpdated }) {
+// canEditClinical: nuevo rol "enfermera" — puede ver/editar alergias y
+// antecedentes igual que el médico; por defecto sigue el valor de isMedico
+// para no romper los usos existentes del componente.
+export default function PatientModal({ isMedico = true, canEditClinical = isMedico, patient = null, onClose, onCreated, onUpdated }) {
   const isEdit = Boolean(patient);
   const [form, setForm] = useState(() => (patient ? { ...EMPTY, ...patient } : EMPTY));
   const [historyPlaceholder, setHistoryPlaceholder] = useState("");
@@ -138,7 +141,7 @@ export default function PatientModal({ isMedico = true, patient = null, onClose,
               placeholder={isEdit ? "" : historyPlaceholder ? `Se asignará ${historyPlaceholder} si lo dejas vacío` : ""}
             />
           </label>
-          {isMedico && (
+          {canEditClinical && (
             <>
               <label className="span-2">
                 Alergias

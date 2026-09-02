@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 
+const ROLE_LABELS = { medico: "Médico", secretaria: "Secretaria", enfermera: "Enfermera" };
+
 export default function UsersModal({ onClose }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ username: "", password: "", full_name: "" });
+  const [form, setForm] = useState({ username: "", password: "", full_name: "", role: "secretaria" });
   const [usernameTouched, setUsernameTouched] = useState(false);
   const [error, setError] = useState(null);
   const [suggestion, setSuggestion] = useState(null);
@@ -13,6 +15,12 @@ export default function UsersModal({ onClose }) {
   const [resetting, setResetting] = useState(null); // id del usuario al que se le está generando clave
   const [tempPassword, setTempPassword] = useState(null); // { userId, username, password }
   const [copied, setCopied] = useState(false);
+
+  // Nuevo rol "enfermera": el médico puede dar de alta como máximo UNA
+  // cuenta de asistente por clínica, sea secretaria o enfermera (el
+  // backend rechaza una segunda cuenta con 409 — aquí solo ocultamos el
+  // formulario cuando ya existe, para que quede claro de entrada).
+  const hasAssistant = users.some((u) => u.role === "secretaria" || u.role === "enfermera");
 
   async function load() {
     setLoading(true);
@@ -47,7 +55,7 @@ export default function UsersModal({ onClose }) {
     setSaving(true);
     try {
       await api.users.create(form);
-      setForm({ username: "", password: "", full_name: "" });
+      setForm({ username: "", password: "", full_name: "", role: "secretaria" });
       setUsernameTouched(false);
       load();
     } catch (err) {
@@ -59,7 +67,7 @@ export default function UsersModal({ onClose }) {
   }
 
   async function handleDelete(id) {
-    if (!confirm("¿Eliminar esta cuenta de secretaria?")) return;
+    if (!confirm("¿Eliminar esta cuenta de asistente?")) return;
     await api.users.remove(id);
     load();
   }
@@ -110,10 +118,10 @@ export default function UsersModal({ onClose }) {
               <li key={u.id}>
                 <div>
                   <strong>{u.full_name}</strong>
-                  <span className="user-role-tag">{u.role === "medico" ? "Médico" : "Secretaria"}</span>
+                  <span className="user-role-tag">{ROLE_LABELS[u.role] || u.role}</span>
                   <div className="hint">@{u.username}</div>
                 </div>
-                {u.role === "secretaria" && (
+                {u.role !== "medico" && (
                   <div style={{ display: "flex", gap: 10 }}>
                     <button type="button" className="link-btn" onClick={() => handleEditName(u)}>
                       Editar nombre
@@ -147,71 +155,85 @@ export default function UsersModal({ onClose }) {
           </p>
         )}
 
-        <h3 className="history-title">Nueva cuenta de secretaria</h3>
+        <h3 className="history-title">Nueva cuenta de asistente</h3>
         <p className="hint" style={{ marginTop: -8, marginBottom: 10 }}>
-          El usuario se sugiere solo a partir del nombre; puedes cambiarlo si quieres uno distinto.
+          Puedes agregar una sola cuenta de asistente por consultorio: secretaria (agenda y datos generales) o
+          enfermera (agenda, y además puede registrar signos vitales, alergias y antecedentes patológicos).
         </p>
-        <form onSubmit={handleCreate} className="form-grid">
-          <label className="span-2">
-            Nombre completo
-            <input
-              value={form.full_name}
-              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-              placeholder="Sofía López"
-            />
-          </label>
-          <label>
-            Usuario
-            <input
-              value={form.username}
-              onChange={(e) => {
-                setUsernameTouched(true);
-                setForm({ ...form, username: e.target.value });
-              }}
-            />
-          </label>
-          <label>
-            Contraseña
-            <input
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="Mín. 6 caracteres"
-            />
-          </label>
+        {hasAssistant ? (
+          <p className="hint" style={{ background: "#e1eafb", padding: "10px 12px", borderRadius: 8 }}>
+            Ya tienes una cuenta de asistente activa. Elimínala primero si quieres dar de alta una de otro tipo.
+          </p>
+        ) : (
+          <form onSubmit={handleCreate} className="form-grid">
+            <label className="span-2">
+              Tipo de cuenta
+              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+                <option value="secretaria">Secretaria</option>
+                <option value="enfermera">Enfermera</option>
+              </select>
+            </label>
+            <label className="span-2">
+              Nombre completo
+              <input
+                value={form.full_name}
+                onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                placeholder="Sofía López"
+              />
+            </label>
+            <label>
+              Usuario
+              <input
+                value={form.username}
+                onChange={(e) => {
+                  setUsernameTouched(true);
+                  setForm({ ...form, username: e.target.value });
+                }}
+              />
+            </label>
+            <label>
+              Contraseña
+              <input
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder="Mín. 6 caracteres"
+              />
+            </label>
 
-          {error && (
-            <p className="form-error span-2">
-              {error}
-              {suggestion && (
-                <>
-                  {" "}
-                  <button
-                    type="button"
-                    className="link-btn"
-                    onClick={() => {
-                      setForm((f) => ({ ...f, username: suggestion }));
-                      setUsernameTouched(true);
-                      setError(null);
-                      setSuggestion(null);
-                    }}
-                  >
-                    Usar "{suggestion}"
-                  </button>
-                </>
-              )}
-            </p>
-          )}
+            {error && (
+              <p className="form-error span-2">
+                {error}
+                {suggestion && (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => {
+                        setForm((f) => ({ ...f, username: suggestion }));
+                        setUsernameTouched(true);
+                        setError(null);
+                        setSuggestion(null);
+                      }}
+                    >
+                      Usar "{suggestion}"
+                    </button>
+                  </>
+                )}
+              </p>
+            )}
 
-          <div className="modal-actions span-2">
-            <button type="button" className="btn-ghost" onClick={onClose}>
-              Cerrar
-            </button>
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving ? "Creando…" : "Crear cuenta"}
-            </button>
-          </div>
-        </form>
+            <div className="modal-actions span-2">
+              <button type="button" className="btn-ghost" onClick={onClose}>
+                Cerrar
+              </button>
+              <button type="submit" className="btn-primary" disabled={saving}>
+                {saving ? "Creando…" : "Crear cuenta"}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
