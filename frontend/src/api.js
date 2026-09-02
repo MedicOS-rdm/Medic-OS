@@ -60,6 +60,8 @@ export const api = {
     create: (data) => request(`/appointments`, { method: "POST", body: JSON.stringify(data) }),
     setStatus: (id, status) =>
       request(`/appointments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+    // Nuevo rol "enfermera": signos vitales de ingreso, ligados a la cita.
+    setIntake: (id, data) => request(`/appointments/${id}/intake`, { method: "PUT", body: JSON.stringify(data) }),
   },
   consultations: {
     listByPatient: (patientId) => request(`/patients/${patientId}/consultations`),
@@ -77,6 +79,7 @@ export const api = {
   doctorProfile: {
     get: () => request(`/doctor-profile`),
     update: (data) => request(`/doctor-profile`, { method: "PUT", body: JSON.stringify(data) }),
+    updateBooking: (data) => request(`/doctor-profile/booking`, { method: "PUT", body: JSON.stringify(data) }),
     uploadLogo: (dataUri) => request(`/doctor-profile/logo`, { method: "PUT", body: JSON.stringify({ data_uri: dataUri }) }),
     removeLogo: () => request(`/doctor-profile/logo`, { method: "DELETE" }),
   },

@@ -1,36 +1,26 @@
 import { Router } from "express";
 import { db, logAudit, withTransaction } from "../db.js";
 import { requireRole } from "../auth.js";
-import { isValidIsoDate } from "../validators.js";
+import { validateBirthDate } from "../validators.js";
 
 export const patientsRouter = Router();
 
 const CLINICAL_FIELDS = ["allergies", "chronic_conditions", "notes"];
 
+// Corrección funcional (nuevo rol "enfermera"): además del médico, la
+// enfermera SÍ debe poder ver y registrar alergias y antecedentes
+// patológicos importantes del paciente (es justamente parte de su
+// función de triaje) — solo la secretaria se queda sin acceso a estos
+// campos clínicos.
+function canAccessClinicalFields(role) {
+  return role === "medico" || role === "enfermera";
+}
+
 function redactForRole(patient, role) {
-  if (role === "medico") return patient;
+  if (canAccessClinicalFields(role)) return patient;
   const copy = { ...patient };
   for (const f of CLINICAL_FIELDS) delete copy[f];
   return copy;
-}
-
-// GRAVE de la auditoría ("las fechas se validan solo por formato y pueden
-// aceptar fechas calendario imposibles"): birth_date no tenía NINGUNA
-// validación (ni de formato ni de calendario) — ahora se exige una fecha
-// calendario real, que no sea futura, y con una antigüedad razonable.
-function validateBirthDate(birth_date) {
-  if (birth_date === undefined || birth_date === null || birth_date === "") return null;
-  if (!isValidIsoDate(birth_date)) {
-    return "birth_date no es una fecha calendario válida (formato AAAA-MM-DD).";
-  }
-  const today = new Date().toISOString().slice(0, 10);
-  if (birth_date > today) {
-    return "birth_date no puede ser una fecha futura.";
-  }
-  if (birth_date < "1900-01-01") {
-    return "birth_date no es una fecha de nacimiento razonable.";
-  }
-  return null;
 }
 
 async function nextClinicalHistoryNumber(clinicId) {
@@ -81,7 +71,7 @@ patientsRouter.get("/:id", async (req, res) => {
 
 patientsRouter.post("/", async (req, res) => {
   const body = { ...req.body };
-  if (req.user.role !== "medico") {
+  if (!canAccessClinicalFields(req.user.role)) {
     for (const f of CLINICAL_FIELDS) delete body[f];
   }
   const {
@@ -155,7 +145,7 @@ patientsRouter.put("/:id", async (req, res) => {
   if (!existing) return res.status(404).json({ error: "Paciente no encontrado" });
 
   const body = { ...req.body };
-  if (req.user.role !== "medico") {
+  if (!canAccessClinicalFields(req.user.role)) {
     for (const f of CLINICAL_FIELDS) delete body[f];
   }
 

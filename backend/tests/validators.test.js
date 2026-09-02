@@ -21,6 +21,8 @@ import {
   validateMinimumClinicalContent,
   isValidAdministrationRoute,
   findAllergyConflicts,
+  validateBirthDate,
+  validateBookingSchedule,
 } from "../src/validators.js";
 
 test("isValidIsoDate acepta AAAA-MM-DD y rechaza otros formatos", () => {
@@ -225,4 +227,44 @@ test("validateMinimumClinicalContent acepta un diagnóstico solo por descripció
     validateMinimumClinicalContent({ chief_complaint: "Cefalea", diagnosis_label: "Cefalea tensional", plan: "Analgesia" }),
     null
   );
+});
+
+// ---------- Nueva página pública de reservas: horario semanal ----------
+
+test("validateBookingSchedule acepta null/undefined (sin horario configurado aún)", () => {
+  assert.equal(validateBookingSchedule(null), null);
+  assert.equal(validateBookingSchedule(undefined), null);
+});
+
+test("validateBookingSchedule acepta un horario válido con varios días y rangos", () => {
+  const schedule = {
+    "1": [["08:00", "13:00"], ["14:00", "18:00"]],
+    "3": [["08:00", "12:00"]],
+  };
+  assert.equal(validateBookingSchedule(schedule), null);
+});
+
+test("validateBookingSchedule rechaza una clave de día que no sea 0-6", () => {
+  assert.match(validateBookingSchedule({ lunes: [["08:00", "13:00"]] }), /Día de la semana inválido/);
+  assert.match(validateBookingSchedule({ "7": [["08:00", "13:00"]] }), /Día de la semana inválido/);
+});
+
+test("validateBookingSchedule rechaza horas con formato inválido", () => {
+  assert.match(validateBookingSchedule({ "1": [["8:00", "13:00"]] }), /formato/);
+  assert.match(validateBookingSchedule({ "1": [["08:00", "25:00"]] }), /formato/);
+  assert.match(validateBookingSchedule({ "1": [["08:00"]] }), /formato/);
+});
+
+test("validateBookingSchedule rechaza un rango donde el inicio no es antes del fin", () => {
+  assert.match(validateBookingSchedule({ "2": [["13:00", "08:00"]] }), /antes que la de fin/);
+  assert.match(validateBookingSchedule({ "2": [["08:00", "08:00"]] }), /antes que la de fin/);
+});
+
+// ---------- Nuevo rol "enfermera": fecha de nacimiento compartida ----------
+
+test("validateBirthDate (compartida entre alta de pacientes y reserva pública) rechaza fechas futuras e imposibles", () => {
+  assert.equal(validateBirthDate("1990-05-20"), null);
+  assert.equal(validateBirthDate(""), null); // opcional
+  assert.match(validateBirthDate("2099-01-01"), /futura/);
+  assert.match(validateBirthDate("2026-02-31"), /fecha calendario válida/);
 });

@@ -160,7 +160,7 @@
     const body = document.getElementById('clinicsBody');
     body.innerHTML = rows.map(c => `
       <tr>
-        <td>${c.name}</td>
+        <td>${c.name}${c.status === 'archivado' ? ' <span style="color:var(--danger); font-size:0.75rem;">(archivada)</span>' : ''}</td>
         <td><code>${c.doctor_username || '—'}</code></td>
         <td>
           <span id="drName-${c.id}">${c.doctor_full_name || '—'}</span>
@@ -170,7 +170,7 @@
         <td>${c.patient_count}</td>
         <td>${new Date(c.created_at.replace(' ', 'T')).toLocaleDateString('es-MX')}</td>
         <td><button class="secondary" onclick="resetPassword(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Restablecer contraseña</button></td>
-        <td><button class="danger" onclick="deleteClinic(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Eliminar</button></td>
+        <td>${c.status === 'archivado' ? '—' : `<button class="danger" onclick="deleteClinic(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Archivar</button>`}</td>
       </tr>
     `).join('') || '<tr><td colspan="8">Todavía no hay consultorios.</td></tr>';
   }
@@ -300,9 +300,20 @@
   }
 
   async function deleteClinic(id, name) {
-    if (!confirm('¿Eliminar "' + name + '" y TODOS sus pacientes, citas y recetas? Esto no se puede deshacer.')) return;
-    await api('/clinics/' + id, { method: 'DELETE' });
-    loadClinics();
+    // El backend ya NO borra nada físicamente (ver CRÍTICO 2 de la
+    // auditoría): esto ARCHIVA la clínica — exige un motivo y que se
+    // vuelva a escribir el nombre exacto como confirmación.
+    const reason = prompt('Motivo para archivar "' + name + '" (mínimo 10 caracteres). El historial NO se borra, solo deja de estar activa:');
+    if (reason === null) return;
+    if (reason.trim().length < 10) return alert('El motivo debe tener al menos 10 caracteres.');
+    const confirmName = prompt('Para confirmar, escribe exactamente el nombre de la clínica:\n"' + name + '"');
+    if (confirmName === null) return;
+    try {
+      await api('/clinics/' + id, { method: 'DELETE', body: JSON.stringify({ reason: reason.trim(), confirm_name: confirmName }) });
+      loadClinics();
+    } catch (err) {
+      alert('No se pudo archivar: ' + err.message);
+    }
   }
 
   if (SECRET) unlock();

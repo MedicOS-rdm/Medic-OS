@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Reservar cita · MedicOs</title>
+<style>
+  :root {
+    --bg: #eef2f8; --surface: #ffffff; --ink: #142642; --ink-soft: #55647c;
+    --accent: #0460d3; --accent-soft: #e1eafb; --line: #d6e0ee; --danger: #b23a3a;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family: system-ui, sans-serif; padding: 32px 16px; }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  h1 .medic { color: var(--ink); }
+  h1 .os { color: var(--accent); }
+  .sub { color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 24px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+  label { display:block; font-size: 0.8rem; color: var(--ink-soft); margin-top: 12px; margin-bottom: 4px; }
+  input, select { width:100%; padding: 9px 10px; border:1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); font-size: 0.95rem; }
+  button { margin-top: 16px; background: var(--accent); color: var(--surface); border:none; padding: 10px 16px; border-radius: 8px; cursor:pointer; font-weight:600; font-size: 0.95rem; }
+  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .msg { margin-top: 12px; padding: 10px; border-radius: 7px; font-size: 0.85rem; white-space: pre-wrap; }
+  .msg.ok { background: var(--accent-soft); color: var(--accent); }
+  .msg.error { background: #fbe9e7; color: var(--danger); }
+  .hidden { display:none !important; }
+  .doctor-item { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; }
+  .doctor-item:hover { background: var(--accent-soft); }
+  .doctor-item strong { display:block; }
+  .doctor-item span { font-size: 0.8rem; color: var(--ink-soft); }
+  .picked-doctor { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; display:flex; justify-content: space-between; align-items:center; }
+  .slots { display:flex; flex-wrap:wrap; gap: 8px; margin-top: 10px; }
+  .slot-btn { margin:0; background: var(--surface); color: var(--ink); border: 1px solid var(--accent); padding: 8px 12px; border-radius: 999px; font-size: 0.85rem; font-weight: 500; }
+  .slot-btn.selected { background: var(--accent); color: #fff; }
+  .step-title { font-weight:600; margin-bottom: 4px; }
+  .confirm-box { text-align:center; }
+  .confirm-box .big-check { font-size: 2.4rem; }
+  .link-btn { background:none; border:none; color: var(--accent); text-decoration: underline; cursor:pointer; padding:0; margin-top: 14px; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><img src="/assets/logo.png" alt="MedicOs" style="width:32px;height:32px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:8px;" /><span class="medic">Medic</span><span class="os">Os</span> · Reservar cita</h1>
+  <div class="sub">Busca a tu médico, elige el día y la hora, y completa tus datos. No necesitas cuenta ni contraseña.</div>
+
+  <!-- Paso 1: buscar médico -->
+  <div class="card" id="step1">
+    <div class="step-title">1. Busca a tu médico</div>
+    <label for="doctorQuery">Nombre del médico, especialidad o consultorio</label>
+    <input id="doctorQuery" placeholder="Ej. Dr. García, Pediatría…" oninput="onDoctorQuery()" autocomplete="off" />
+    <div id="doctorResults"></div>
+    <div id="doctorEmptyMsg" class="msg hidden"></div>
+  </div>
+
+  <!-- Paso 2: fecha y hora -->
+  <div class="card hidden" id="step2">
+    <div class="step-title">2. Elige fecha y hora</div>
+    <div class="picked-doctor">
+      <div>
+        <strong id="pickedDoctorName"></strong>
+        <div style="font-size:0.8rem; color:var(--ink-soft);" id="pickedDoctorClinic"></div>
+      </div>
+      <button class="secondary" onclick="resetDoctor()">Cambiar</button>
+    </div>
+    <label for="bookingDate">Fecha</label>
+    <input id="bookingDate" type="date" oninput="onDateChange()" />
+    <div id="slotsArea"></div>
+    <div id="availabilityMsg" class="msg hidden"></div>
+  </div>
+
+  <!-- Paso 3: datos del paciente -->
+  <div class="card hidden" id="step3">
+    <div class="step-title">3. Tus datos</div>
+    <label for="firstName">Nombres*</label>
+    <input id="firstName" />
+    <label for="lastName">Apellidos*</label>
+    <input id="lastName" />
+    <label for="idNumber">Número de cédula*</label>
+    <input id="idNumber" />
+    <label for="birthDate">Fecha de nacimiento*</label>
+    <input id="birthDate" type="date" />
+    <label for="gender">Sexo</label>
+    <select id="gender">
+      <option value="">Seleccionar…</option>
+      <option value="F">Femenino</option>
+      <option value="M">Masculino</option>
+      <option value="Otro">Otro</option>
+    </select>
+    <label for="phone">Teléfono*</label>
+    <input id="phone" type="tel" placeholder="09XXXXXXXX" />
+    <label for="email">Correo electrónico</label>
+    <input id="email" type="email" />
+    <label for="reason">Motivo de la consulta*</label>
+    <input id="reason" placeholder="Ej. Dolor de cabeza persistente" />
+
+    <button onclick="submitBooking()" id="submitBtn">Confirmar reserva</button>
+    <div id="submitMsg" class="msg hidden"></div>
+  </div>
+
+  <!-- Confirmación -->
+  <div class="card hidden confirm-box" id="stepDone">
+    <div class="big-check">✓</div>
+    <h2>¡Cita reservada!</h2>
+    <p id="confirmDetail"></p>
+    <p style="font-size:0.85rem; color:var(--ink-soft);">Llega unos minutos antes de tu hora. Si necesitas cambiar o cancelar, comunícate directamente con el consultorio.</p>
+  </div>
+</div>
+
+<script>
+  // Página pública, SIN sesión ni cookie de autenticación — solo llama a
+  // los endpoints públicos de reservas (ver backend/src/routes/publicBooking.js).
+  async function api(path, options = {}) {
+    const res = await fetch('/api/public/booking' + path, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ('Error ' + res.status));
+    return body;
+  }
+
+  function showMsg(id, text, ok) {
+    const el = document.getElementById(id);
+    el.classList.remove('hidden');
+    el.className = 'msg ' + (ok ? 'ok' : 'error');
+    el.textContent = text;
+  }
+  function hideMsg(id) {
+    document.getElementById(id).classList.add('hidden');
+  }
+
+  let selectedDoctor = null; // { clinic_id, full_name, clinic_name }
+  let selectedSlot = null;   // "HH:MM"
+  let doctorDebounce = null;
+
+  function onDoctorQuery() {
+    clearTimeout(doctorDebounce);
+    const q = document.getElementById('doctorQuery').value.trim();
+    hideMsg('doctorEmptyMsg');
+    if (q.length < 2) {
+      document.getElementById('doctorResults').innerHTML = '';
+      return;
+    }
+    doctorDebounce = setTimeout(async () => {
+      try {
+        const results = await api('/doctors?q=' + encodeURIComponent(q));
+        const container = document.getElementById('doctorResults');
+        if (results.length === 0) {
+          container.innerHTML = '';
+          showMsg('doctorEmptyMsg', 'No encontramos ningún médico con reserva en línea activada para esa búsqueda.', false);
+          return;
+        }
+        container.innerHTML = results.map((d, i) => `
+          <div class="doctor-item" onclick='pickDoctor(${JSON.stringify(d).replace(/'/g, "&#39;")})'>
+            <strong>${d.full_name}</strong>
+            <span>${d.specialty ? d.specialty + ' · ' : ''}${d.clinic_name || ''}</span>
+          </div>
+        `).join('');
+      } catch (err) {
+        showMsg('doctorEmptyMsg', err.message, false);
+      }
+    }, 300);
+  }
+
+  function pickDoctor(doctor) {
+    selectedDoctor = doctor;
+    document.getElementById('pickedDoctorName').textContent = doctor.full_name;
+    document.getElementById('pickedDoctorClinic').textContent = [doctor.specialty, doctor.clinic_name].filter(Boolean).join(' · ');
+    document.getElementById('step1').classList.add('hidden');
+    document.getElementById('step2').classList.remove('hidden');
+    document.getElementById('step3').classList.add('hidden');
+    const dateInput = document.getElementById('bookingDate');
+    const today = new Date().toISOString().slice(0, 10);
+    dateInput.min = today;
+    dateInput.value = today;
+    onDateChange();
+  }
+
+  function resetDoctor() {
+    selectedDoctor = null;
+    selectedSlot = null;
+    document.getElementById('step1').classList.remove('hidden');
+    document.getElementById('step2').classList.add('hidden');
+    document.getElementById('step3').classList.add('hidden');
+  }
+
+  async function onDateChange() {
+    selectedSlot = null;
+    hideMsg('availabilityMsg');
+    document.getElementById('step3').classList.add('hidden');
+    const date = document.getElementById('bookingDate').value;
+    const slotsArea = document.getElementById('slotsArea');
+    slotsArea.innerHTML = '<p style="font-size:0.85rem; color:var(--ink-soft);">Buscando horarios disponibles…</p>';
+    if (!date) { slotsArea.innerHTML = ''; return; }
+    try {
+      const { slots } = await api('/availability?clinic_id=' + selectedDoctor.clinic_id + '&date=' + date);
+      if (slots.length === 0) {
+        slotsArea.innerHTML = '';
+        showMsg('availabilityMsg', 'No hay turnos disponibles ese día. Prueba con otra fecha.', false);
+        return;
+      }
+      slotsArea.innerHTML = '<div class="slots" id="slotsList"></div>';
+      const list = document.getElementById('slotsList');
+      list.innerHTML = slots.map(s => `<button type="button" class="slot-btn" onclick="pickSlot('${s}')">${s}</button>`).join('');
+    } catch (err) {
+      slotsArea.innerHTML = '';
+      showMsg('availabilityMsg', err.message, false);
+    }
+  }
+
+  function pickSlot(slot) {
+    selectedSlot = slot;
+    document.querySelectorAll('.slot-btn').forEach(btn => {
+      btn.classList.toggle('selected', btn.textContent === slot);
+    });
+    document.getElementById('step3').classList.remove('hidden');
+    document.getElementById('step3').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function submitBooking() {
+    hideMsg('submitMsg');
+    const payload = {
+      clinic_id: selectedDoctor.clinic_id,
+      date: document.getElementById('bookingDate').value,
+      time: selectedSlot,
+      reason: document.getElementById('reason').value.trim(),
+      patient: {
+        first_name: document.getElementById('firstName').value.trim(),
+        last_name: document.getElementById('lastName').value.trim(),
+        id_number: document.getElementById('idNumber').value.trim(),
+        birth_date: document.getElementById('birthDate').value,
+        gender: document.getElementById('gender').value,
+        phone: document.getElementById('phone').value.trim(),
+        email: document.getElementById('email').value.trim(),
+      },
+    };
+    if (!payload.patient.first_name || !payload.patient.last_name) return showMsg('submitMsg', 'Nombre y apellido son obligatorios.', false);
+    if (!payload.patient.id_number) return showMsg('submitMsg', 'El número de cédula es obligatorio.', false);
+    if (!payload.patient.birth_date) return showMsg('submitMsg', 'La fecha de nacimiento es obligatoria.', false);
+    if (!payload.patient.phone) return showMsg('submitMsg', 'El teléfono es obligatorio.', false);
+    if (!payload.reason) return showMsg('submitMsg', 'Indica el motivo de la consulta.', false);
+    if (!selectedSlot) return showMsg('submitMsg', 'Elige un horario disponible.', false);
+
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Reservando…';
+    try {
+      const result = await api('', { method: 'POST', body: JSON.stringify(payload) });
+      document.getElementById('step1').classList.add('hidden');
+      document.getElementById('step2').classList.add('hidden');
+      document.getElementById('step3').classList.add('hidden');
+      document.getElementById('stepDone').classList.remove('hidden');
+      const dateLabel = new Date(result.date + 'T00:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+      document.getElementById('confirmDetail').textContent =
+        'Con ' + result.doctor_name + (result.clinic_name ? ' — ' + result.clinic_name : '') +
+        '\n' + dateLabel + ' a las ' + result.time + '.';
+    } catch (err) {
+      showMsg('submitMsg', err.message, false);
+      // Si el horario ya no está disponible, refrescamos la lista para
+      // que la persona elija otro en vez de reintentar a ciegas.
+      if (err.message.toLowerCase().includes('disponible') || err.message.toLowerCase().includes('tomado')) {
+        onDateChange();
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Confirmar reserva';
+    }
+  }
+</script>
+</body>
+</html>

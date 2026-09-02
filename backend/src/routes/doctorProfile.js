@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { requireRole } from "../auth.js";
+import { validateBookingSchedule } from "../validators.js";
 
 export const doctorProfileRouter = Router();
 
@@ -24,6 +25,9 @@ doctorProfileRouter.get("/", async (req, res) => {
       clinic_phone: "",
       mobile_phone: "",
       logo_base64: null,
+      booking_enabled: false,
+      booking_slot_minutes: 20,
+      booking_schedule_json: null,
     }
   );
 });
@@ -78,6 +82,38 @@ doctorProfileRouter.put("/", requireRole("medico"), async (req, res) => {
       clinic_phone ?? "",
       mobile_phone ?? ""
     );
+  res.json(await db.prepare(`SELECT * FROM doctor_profile WHERE clinic_id = ?`).get(req.user.clinic_id));
+});
+
+// PUT /api/doctor-profile/booking -> configuración de la página pública
+// de reservas (booking.html): si está activada, cuánto dura cada turno
+// por defecto, y el horario semanal de atención. Solo el médico puede
+// cambiarla — la secretaria/enfermera pueden verla (GET normal) pero no
+// tocarla.
+doctorProfileRouter.put("/booking", requireRole("medico"), async (req, res) => {
+  const { booking_enabled, booking_slot_minutes, booking_schedule } = req.body;
+
+  const slotMinutes = Number(booking_slot_minutes);
+  if (!Number.isFinite(slotMinutes) || slotMinutes < 5 || slotMinutes > 240) {
+    return res.status(400).json({ error: "La duración del turno debe ser entre 5 y 240 minutos." });
+  }
+  const scheduleError = validateBookingSchedule(booking_schedule);
+  if (scheduleError) return res.status(400).json({ error: scheduleError });
+  if (booking_enabled && (!booking_schedule || Object.keys(booking_schedule).length === 0)) {
+    return res.status(400).json({ error: "Configura al menos un día de atención antes de activar la reserva pública." });
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO doctor_profile (clinic_id, booking_enabled, booking_slot_minutes, booking_schedule_json)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(clinic_id) DO UPDATE SET
+         booking_enabled = excluded.booking_enabled,
+         booking_slot_minutes = excluded.booking_slot_minutes,
+         booking_schedule_json = excluded.booking_schedule_json`
+    )
+    .run(req.user.clinic_id, booking_enabled ? 1 : 0, Math.round(slotMinutes), booking_schedule ? JSON.stringify(booking_schedule) : null);
+
   res.json(await db.prepare(`SELECT * FROM doctor_profile WHERE clinic_id = ?`).get(req.user.clinic_id));
 });
 

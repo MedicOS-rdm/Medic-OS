@@ -7,7 +7,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { initDb } from "./db.js";
 import { requireAuth, requireRole } from "./auth.js";
-import { adminRateLimit, publicDocumentRateLimit } from "./rateLimiter.js";
+import { adminRateLimit, publicDocumentRateLimit, publicBookingRateLimit } from "./rateLimiter.js";
 import { authRouter } from "./routes/auth.js";
 import { adminRouter } from "./routes/admin.js";
 import { verifyRouter } from "./routes/verify.js";
@@ -23,6 +23,7 @@ import { certificatesRouter } from "./routes/certificates.js";
 import { shareRouter } from "./routes/share.js";
 import { notificationSettingsRouter } from "./routes/notificationSettings.js";
 import { remindersRouter, remindersWebhookRouter } from "./routes/reminders.js";
+import { publicBookingRouter } from "./routes/publicBooking.js";
 import { checkAndSendDueReminders } from "./reminders.js";
 
 const app = express();
@@ -133,6 +134,10 @@ app.use("/api/admin", adminRateLimit, adminRouter); // protegida por ADMIN_SECRE
 app.use("/api/verify", publicDocumentRateLimit, verifyRouter); // lo escanea el QR de la receta
 app.use("/api/share", publicDocumentRateLimit, shareRouter); // PDF público de UNA receta/certificado (lo descarga WhatsApp)
 app.use("/api/reminders", remindersWebhookRouter); // lo llama Twilio (respuestas 1/2)
+// Página pública de reservas (frontend/public/reservas.html) — sin sesión,
+// cualquier paciente en internet la usa. Rate-limited más estricto porque
+// escribe en la base (crea pacientes y citas), a diferencia de verify/share.
+app.use("/api/public/booking", publicBookingRateLimit, publicBookingRouter);
 
 // ---------- A partir de aquí, todo requiere sesión de médico/secretaria ----------
 app.use("/api", requireAuth);
@@ -177,6 +182,12 @@ if (fs.existsSync(frontendDist)) {
   app.get("/admin.html", (_req, res) => {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.sendFile(path.join(frontendDist, "admin.html"));
+  });
+  // Página pública de reservas: alias con URL amigable (/reservas) sobre
+  // el mismo archivo estático que /reservas.html.
+  app.get("/reservas", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.sendFile(path.join(frontendDist, "reservas.html"));
   });
   app.use(express.static(frontendDist));
   app.get(/^(?!\/api).*/, (_req, res) => {

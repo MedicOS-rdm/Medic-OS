@@ -69,6 +69,15 @@ export const webhookRateLimit = rateLimit({
   message: "Demasiadas solicitudes.",
 });
 
+// Página pública de reservas (sin autenticación, cualquiera en internet
+// puede llamarla): más estricta que publicDocumentRateLimit porque esta
+// SÍ escribe en la base de datos (crea pacientes y citas), no solo lee.
+export const publicBookingRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: "Demasiadas solicitudes de reserva desde esta conexión. Intenta de nuevo más tarde.",
+});
+
 // GRAVE de la auditoría ("privacidad y compartición de documentos"): las
 // rutas públicas de verificación por QR (/api/verify) y de descarga del
 // PDF compartido (/api/share) no tenían ningún límite de tasa — nada
