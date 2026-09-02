@@ -57,8 +57,8 @@ export default function CertificateModal({
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
-    if (!diagnosisLabel.trim()) {
-      setError("Escribe o selecciona un diagnóstico.");
+    if (!diagnosisCode.trim() || !diagnosisLabel.trim()) {
+      setError("Selecciona un diagnóstico del catálogo CIE-10 (no basta con escribir texto libre).");
       return;
     }
     if (!autoDays || autoDays < 1) {
@@ -67,7 +67,7 @@ export default function CertificateModal({
     }
     setSaving(true);
     const payload = {
-      diagnosis_code: diagnosisCode || null,
+      diagnosis_code: diagnosisCode,
       diagnosis_label: diagnosisLabel,
       clinical_picture: clinicalPicture || null,
       presents_symptoms: presentsSymptoms,

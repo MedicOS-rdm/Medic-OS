@@ -45,7 +45,7 @@ adminRouter.get("/suggest-username", async (req, res) => {
 adminRouter.get("/clinics", async (_req, res) => {
   const rows = await db
     .prepare(
-      `SELECT c.id, c.name, c.created_at,
+      `SELECT c.id, c.name, c.created_at, c.status, c.archived_at, c.archived_reason,
         (SELECT COUNT(*) FROM users u WHERE u.clinic_id = c.id) AS user_count,
         (SELECT COUNT(*) FROM patients p WHERE p.clinic_id = c.id) AS patient_count,
         (SELECT u2.username FROM users u2 WHERE u2.clinic_id = c.id AND u2.role = 'medico' ORDER BY u2.id LIMIT 1) AS doctor_username,
@@ -174,11 +174,38 @@ adminRouter.post("/clinics", async (req, res) => {
   });
 });
 
-// DELETE /api/admin/clinics/:id -> borra una clínica y TODO lo que le pertenece (cascada)
+// DELETE /api/admin/clinics/:id -> CRÍTICO de la auditoría: esto YA NO
+// borra nada físicamente. Antes hacía un DELETE FROM clinics que, por la
+// cascada de la base de datos, arrastraba en una sola operación
+// irreversible TODOS los pacientes, historiales clínicos, recetas,
+// certificados y usuarios de la clínica — sin confirmación real (bastaba
+// mandar el id) y sin forma de deshacerlo. Ahora la clínica se ARCHIVA:
+// exige un motivo explícito y que se re-escriba el nombre exacto de la
+// clínica como confirmación (igual que "escribe DELETE para confirmar"),
+// deja de aparecer para operación normal, pero todo su historial queda
+// intacto y es reversible por soporte si hiciera falta.
 adminRouter.delete("/clinics/:id", async (req, res) => {
-  const existing = await db.prepare(`SELECT id FROM clinics WHERE id = ?`).get(req.params.id);
+  const existing = await db.prepare(`SELECT id, name, status FROM clinics WHERE id = ?`).get(req.params.id);
   if (!existing) return res.status(404).json({ error: "Clínica no encontrada" });
-  await db.prepare(`DELETE FROM clinics WHERE id = ?`).run(req.params.id);
-  await logAudit({ actor: "admin", action: "delete", entity: "clinic", entityId: req.params.id });
+  if (existing.status === "archivado") {
+    return res.status(409).json({ error: "Esta clínica ya está archivada." });
+  }
+
+  const { reason, confirm_name } = req.body;
+  if (!reason || !reason.trim() || reason.trim().length < 10) {
+    return res.status(400).json({ error: "Indica el motivo del archivado (mínimo 10 caracteres)." });
+  }
+  if (!confirm_name || confirm_name.trim() !== existing.name) {
+    return res.status(400).json({ error: "Para confirmar, escribe exactamente el nombre de la clínica." });
+  }
+
+  await db
+    .prepare(
+      `UPDATE clinics SET status = 'archivado', archived_reason = ?, archived_by = 'admin',
+        archived_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+       WHERE id = ?`
+    )
+    .run(reason.trim(), req.params.id);
+  await logAudit({ clinicId: req.params.id, actor: "admin", action: "archive", entity: "clinic", entityId: req.params.id, detail: { reason: reason.trim() } });
   res.status(204).end();
 });

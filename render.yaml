@@ -15,7 +15,18 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
-    # ADMIN_SECRET: defínela tú (cualquier texto largo y difícil de adivinar).
+      # GRAVE de la auditoría ("preparación para producción regulada"):
+      # faltaba en este archivo. Sin ella, los secretos de Twilio/SMTP
+      # cifrados (ver secretCrypto.js) quedan ilegibles en cada redeploy
+      # porque Render tiene disco efímero. generateValue: true hace que
+      # Render genere una clave aleatoria una sola vez y la reutilice en
+      # redeploys futuros del mismo servicio (igual que ya hacía con
+      # JWT_SECRET).
+      - key: APP_ENCRYPTION_KEY
+        generateValue: true
+    # ADMIN_SECRET: defínela tú (cualquier texto largo y difícil de adivinar,
+    # 20+ caracteres — el servidor se niega a arrancar en producción si es
+    # más corta o si falta, ver server.js).
     # Es la clave que usas en /admin.html para dar de alta consultorios nuevos.
     #
     # DATABASE_URL: la cadena de conexión de tu base de datos PostgreSQL

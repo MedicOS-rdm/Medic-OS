@@ -68,3 +68,16 @@ export const webhookRateLimit = rateLimit({
   max: 60,
   message: "Demasiadas solicitudes.",
 });
+
+// GRAVE de la auditoría ("privacidad y compartición de documentos"): las
+// rutas públicas de verificación por QR (/api/verify) y de descarga del
+// PDF compartido (/api/share) no tenían ningún límite de tasa — nada
+// impedía automatizar miles de intentos por minuto para "pescar" tokens
+// válidos al azar, ni frenaba un scraping masivo de documentos aunque el
+// token en sí sea largo y aleatorio. Se limita por IP igual que el resto
+// de endpoints públicos sensibles.
+export const publicDocumentRateLimit = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 40,
+  message: "Demasiadas solicitudes a este enlace. Espera unos minutos.",
+});

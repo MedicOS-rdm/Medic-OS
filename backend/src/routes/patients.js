@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, logAudit, withTransaction } from "../db.js";
 import { requireRole } from "../auth.js";
+import { isValidIsoDate } from "../validators.js";
 
 export const patientsRouter = Router();
 
@@ -11,6 +12,25 @@ function redactForRole(patient, role) {
   const copy = { ...patient };
   for (const f of CLINICAL_FIELDS) delete copy[f];
   return copy;
+}
+
+// GRAVE de la auditoría ("las fechas se validan solo por formato y pueden
+// aceptar fechas calendario imposibles"): birth_date no tenía NINGUNA
+// validación (ni de formato ni de calendario) — ahora se exige una fecha
+// calendario real, que no sea futura, y con una antigüedad razonable.
+function validateBirthDate(birth_date) {
+  if (birth_date === undefined || birth_date === null || birth_date === "") return null;
+  if (!isValidIsoDate(birth_date)) {
+    return "birth_date no es una fecha calendario válida (formato AAAA-MM-DD).";
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  if (birth_date > today) {
+    return "birth_date no puede ser una fecha futura.";
+  }
+  if (birth_date < "1900-01-01") {
+    return "birth_date no es una fecha de nacimiento razonable.";
+  }
+  return null;
 }
 
 async function nextClinicalHistoryNumber(clinicId) {
@@ -87,6 +107,8 @@ patientsRouter.post("/", async (req, res) => {
   if (!first_name || !last_name) {
     return res.status(400).json({ error: "first_name y last_name son obligatorios" });
   }
+  const birthDateError = validateBirthDate(birth_date);
+  if (birthDateError) return res.status(400).json({ error: birthDateError });
 
   const finalHistoryNumber =
     clinical_history_number && String(clinical_history_number).trim()
@@ -138,6 +160,8 @@ patientsRouter.put("/:id", async (req, res) => {
   }
 
   const merged = { ...existing, ...body };
+  const birthDateError = validateBirthDate(merged.birth_date);
+  if (birthDateError) return res.status(400).json({ error: birthDateError });
   await db
     .prepare(
       `UPDATE patients SET

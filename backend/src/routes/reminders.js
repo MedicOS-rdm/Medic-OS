@@ -99,8 +99,20 @@ remindersWebhookRouter.post("/webhook", webhookRateLimit, async (req, res) => {
   let clinicId = null;
   let settings = null;
   if (to) {
-    settings = await db.prepare(`SELECT * FROM reminder_settings WHERE twilio_from_number = ?`).get(to);
-    if (settings) clinicId = settings.clinic_id;
+    // GRAVE de la auditoría (encontrado al corregir GRAVE-4, migración de
+    // secretos): esta consulta traía la fila CRUDA de la base, con
+    // twilio_auth_token todavía cifrado (prefijo "enc1:") — se estaba
+    // pasando el texto cifrado, no el token real, a
+    // twilio.validateRequest, así que la validación de firma fallaba
+    // SIEMPRE para cualquier clínica que ya tuviera el token cifrado
+    // (todas, tras la corrección de GRAVE-4), tumbando el webhook por
+    // completo sin ningún aviso. Se usa getSettings(), que ya descifra el
+    // token antes de entregarlo, igual que hace el envío saliente.
+    const rawSettings = await db.prepare(`SELECT clinic_id FROM reminder_settings WHERE twilio_from_number = ?`).get(to);
+    if (rawSettings) {
+      clinicId = rawSettings.clinic_id;
+      settings = await getSettings(clinicId);
+    }
   }
 
   // Sin clínica identificada no hay auth token con qué validar la firma,

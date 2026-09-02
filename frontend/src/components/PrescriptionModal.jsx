@@ -1,9 +1,15 @@
 import { useState } from "react";
 import { api } from "../api.js";
 import MedicationSearch from "./MedicationSearch.jsx";
+import { DOSE_FREQUENCY_OPTIONS, TREATMENT_DURATION_OPTIONS, ADMINISTRATION_ROUTE_OPTIONS } from "../soapCatalogs.js";
 
 // existing: si se pasa una receta ya emitida (con .items), el modal edita
 // esa receta en vez de crear una nueva.
+//
+// CRÍTICO de la auditoría ("prescripción demasiado permisiva"): dosis,
+// vía, frecuencia y duración/cantidad ahora son obligatorias (el backend
+// las exige — ver validators.js). Se agregan "vía" y "cantidad
+// total"/"indicación", que antes no existían en este formulario.
 export default function PrescriptionModal({ patientId, consultationId, existing = null, doctorReady, onClose, onOpenDoctorProfile }) {
   const isEdit = Boolean(existing);
   const [items, setItems] = useState(() =>
@@ -23,8 +29,11 @@ export default function PrescriptionModal({ patientId, consultationId, existing 
         commercial_name: med.commercial_names?.split(",")[0]?.trim() || "",
         presentation: med.presentation,
         dose: "",
+        route: "",
+        quantity: "",
         frequency: "",
         duration: "",
+        indication: "",
       },
     ]);
   }
@@ -37,7 +46,7 @@ export default function PrescriptionModal({ patientId, consultationId, existing 
     setItems((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  async function handleSubmit(e, overrideAllergy = false) {
+  async function handleSubmit(e, overrideAllergy = false, overrideReason = "") {
     e?.preventDefault?.();
     setError(null);
     if (items.length === 0) {
@@ -48,30 +57,42 @@ export default function PrescriptionModal({ patientId, consultationId, existing 
     const payload = {
       items: items.map(({ key, ...rest }) => rest),
       instructions,
-      ...(overrideAllergy ? { confirm_allergy_override: true } : {}),
+      ...(overrideAllergy ? { confirm_allergy_override: true, override_reason: overrideReason } : {}),
     };
     try {
+      let result;
       if (isEdit) {
         // C-04: editar ahora crea una CORRECCIÓN (una fila nueva); usamos
         // el id que regresa el servidor, no el de la receta original.
-        const updated = await api.prescriptions.update(existing.id, payload);
-        setDoneId(updated.id);
+        result = await api.prescriptions.update(existing.id, payload);
       } else {
-        const rx = await api.prescriptions.create({ patient_id: patientId, consultation_id: consultationId ?? null, ...payload });
-        setDoneId(rx.id);
+        result = await api.prescriptions.create({ patient_id: patientId, consultation_id: consultationId ?? null, ...payload });
       }
+      if (result.duplicate_warnings?.length > 0) {
+        const detail = result.duplicate_warnings.map((d) => `• ${d.generic_name}`).join("\n");
+        alert(`⚠️ Hay medicamentos repetidos (duplicidad terapéutica) en esta receta:\n\n${detail}`);
+      }
+      setDoneId(result.id);
     } catch (err) {
-      // Alerta de alergias (GRAVE de la auditoría): el backend responde
-      // 409 con el detalle en vez de bloquear en silencio o sin avisar —
-      // se le pregunta al médico si de todas formas quiere continuar.
+      // CRÍTICO de la auditoría ("el override nunca debe ser una bandera
+      // booleana sin trazabilidad"): el backend ahora también exige un
+      // motivo clínico (mínimo 10 caracteres) para poder continuar pese a
+      // la alerta de alergia — se pide aquí y viaja junto con la
+      // confirmación, quedando registrado en la bitácora de auditoría.
       if (err.allergy_conflicts?.length > 0) {
         const detail = err.allergy_conflicts.map((c) => `• ${c.medication} (alergia registrada: ${c.allergy})`).join("\n");
         const proceed = confirm(
           `⚠️ Posible alergia registrada en este paciente:\n\n${detail}\n\n¿Deseas continuar de todas formas?`
         );
         if (proceed) {
-          setSaving(false);
-          return handleSubmit(null, true);
+          const reason = prompt("Indica el motivo clínico para continuar pese a la alerta de alergia (mínimo 10 caracteres):");
+          if (reason && reason.trim().length >= 10) {
+            setSaving(false);
+            return handleSubmit(null, true, reason.trim());
+          }
+          setError("Se requiere un motivo clínico de al menos 10 caracteres para continuar pese a la alerta de alergia.");
+        } else {
+          setError("No se emitió la receta: hay una alerta de alergia sin confirmar.");
         }
       } else {
         setError(err.message);
@@ -131,21 +152,48 @@ export default function PrescriptionModal({ patientId, consultationId, existing 
                     <div className="rx-item-sub">{item.presentation}</div>
                     <div className="rx-item-grid">
                       <input
-                        placeholder="Dosis (ej. 1 tableta)"
+                        placeholder="Dosis por toma (ej. 1 tableta) *"
                         value={item.dose}
                         onChange={(e) => updateItem(idx, "dose", e.target.value)}
                       />
+                      <select value={item.route || ""} onChange={(e) => updateItem(idx, "route", e.target.value)}>
+                        <option value="">Vía de administración… *</option>
+                        {ADMINISTRATION_ROUTE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select value={item.frequency} onChange={(e) => updateItem(idx, "frequency", e.target.value)}>
+                        <option value="">Frecuencia… *</option>
+                        {DOSE_FREQUENCY_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                      <select value={item.duration} onChange={(e) => updateItem(idx, "duration", e.target.value)}>
+                        <option value="">Duración… *</option>
+                        {TREATMENT_DURATION_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
                       <input
-                        placeholder="Frecuencia (ej. cada 8 h)"
-                        value={item.frequency}
-                        onChange={(e) => updateItem(idx, "frequency", e.target.value)}
+                        placeholder="Cantidad total (ej. 20 tabletas)"
+                        value={item.quantity || ""}
+                        onChange={(e) => updateItem(idx, "quantity", e.target.value)}
                       />
                       <input
-                        placeholder="Duración (ej. 5 días)"
-                        value={item.duration}
-                        onChange={(e) => updateItem(idx, "duration", e.target.value)}
+                        placeholder="Indicación de uso (opcional)"
+                        value={item.indication || ""}
+                        onChange={(e) => updateItem(idx, "indication", e.target.value)}
                       />
                     </div>
+                    <p className="hint" style={{ marginTop: 4 }}>
+                      * Obligatorios. Duración o cantidad total: al menos uno de los dos.
+                    </p>
                   </li>
                 ))}
               </ul>

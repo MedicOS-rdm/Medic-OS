@@ -81,8 +81,16 @@ export async function requireAuth(req, res, next) {
     // este usuario cambió después de que se emitió este token,
     // session_version ya no coincide y el token deja de servir de
     // inmediato, sin esperar a que expiren las 12 horas.
-    const row = await db.prepare(`SELECT session_version FROM users WHERE id = ?`).get(payload.id);
+    const row = await db
+      .prepare(`SELECT u.session_version, c.status AS clinic_status FROM users u JOIN clinics c ON c.id = u.clinic_id WHERE u.id = ?`)
+      .get(payload.id);
     if (!row || row.session_version !== (payload.session_version ?? 0)) {
+      return res.status(401).json({ error: "Sesión inválida o expirada" });
+    }
+    // CRÍTICO de la auditoría (clínicas archivadas): si la clínica se
+    // archiva mientras un usuario ya tiene sesión abierta, esa sesión se
+    // corta en la siguiente petición, no hasta que expire por las 12h.
+    if (row.clinic_status === "archivado") {
       return res.status(401).json({ error: "Sesión inválida o expirada" });
     }
     req.user = payload;

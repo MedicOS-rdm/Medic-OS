@@ -17,13 +17,21 @@ authRouter.post("/login", loginRateLimit, async (req, res) => {
 
   const row = await db
     .prepare(
-      `SELECT u.*, c.name AS clinic_name FROM users u
+      `SELECT u.*, c.name AS clinic_name, c.status AS clinic_status FROM users u
        JOIN clinics c ON c.id = u.clinic_id
        WHERE u.username = ?`
     )
     .get(username.trim().toLowerCase());
 
   if (!row || !bcrypt.compareSync(password, row.password_hash)) {
+    return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
+  }
+
+  // CRÍTICO de la auditoría (clínicas archivadas): si la clínica fue
+  // archivada por el administrador, sus cuentas dejan de poder iniciar
+  // sesión de inmediato — el historial sigue intacto en la base de datos,
+  // simplemente ya no es un consultorio operativo.
+  if (row.clinic_status === "archivado") {
     return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
   }
 

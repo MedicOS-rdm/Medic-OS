@@ -534,6 +534,44 @@ export async function initDb() {
     END $$;
   `);
 
+  // CRÍTICO de la auditoría ("borrar una clínica hace DELETE físico con
+  // cascada, sin poder deshacerse, arrastrando pacientes, historiales,
+  // recetas, certificados y usuarios de TODA la clínica en una sola
+  // operación irreversible"): igual que se hizo con pacientes, una
+  // clínica ahora se ARCHIVA en vez de borrarse. Además, se retiran los
+  // "ON DELETE CASCADE" hacia clinics en cada tabla dependiente y se
+  // reemplazan por "ON DELETE RESTRICT": aunque alguien ejecutara un
+  // DELETE FROM clinics a mano (fuera de la aplicación), Postgres se
+  // niega a hacerlo si existe cualquier dato dependiente, en vez de
+  // borrar todo en cascada silenciosamente.
+  await ensureColumn("clinics", "status", "TEXT NOT NULL DEFAULT 'activo'");
+  await ensureColumn("clinics", "archived_reason", "TEXT");
+  await ensureColumn("clinics", "archived_at", "TEXT");
+  await ensureColumn("clinics", "archived_by", "TEXT");
+  for (const [table, column] of [
+    ["patients", "clinic_id"],
+    ["appointments", "clinic_id"],
+    ["consultations", "clinic_id"],
+    ["doctor_profile", "clinic_id"],
+    ["prescriptions", "clinic_id"],
+    ["certificates", "clinic_id"],
+    ["users", "clinic_id"],
+    ["reminder_settings", "clinic_id"],
+    ["notification_settings", "clinic_id"],
+  ]) {
+    const constraintName = `${table}_${column}_fkey`;
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${constraintName}') THEN
+          ALTER TABLE ${table} DROP CONSTRAINT ${constraintName};
+        END IF;
+        ALTER TABLE ${table}
+          ADD CONSTRAINT ${constraintName} FOREIGN KEY (${column}) REFERENCES clinics(id) ON DELETE RESTRICT;
+      END $$;
+    `);
+  }
+
   // CRÍTICO FUNCIONAL/CLÍNICO de la auditoría: antes DELETE /patients/:id
   // borraba la fila físicamente (con ON DELETE CASCADE arrastrando
   // consultas, recetas, certificados y citas). En una historia clínica
@@ -772,6 +810,42 @@ export async function initDb() {
       BEFORE UPDATE OR DELETE ON audit_log
       FOR EACH ROW EXECUTE FUNCTION audit_log_immutable();
   `);
+
+  // GRAVE de la auditoría ("las credenciales de Twilio/SMTP quedan en
+  // texto plano hasta que alguien vuelva a guardar la configuración"):
+  // encryptSecret()/decryptSecret() ya sabían convivir con valores legado
+  // sin cifrar, pero solo se re-cifraban si el médico volvía a tocar el
+  // formulario de configuración — mientras tanto, el secreto seguía
+  // legible en texto plano en la base indefinidamente. Aquí se migran
+  // AUTOMÁTICAMENTE al arrancar el servidor, sin depender de ninguna
+  // acción del usuario.
+  const { encryptSecret } = await import("./secretCrypto.js");
+  const ENC_PREFIX = "enc1:";
+  const legacyTwilioTokens = await pool.query(
+    `SELECT clinic_id, twilio_auth_token FROM reminder_settings
+     WHERE twilio_auth_token IS NOT NULL AND twilio_auth_token <> '' AND twilio_auth_token NOT LIKE '${ENC_PREFIX}%'`
+  );
+  for (const row of legacyTwilioTokens.rows) {
+    await pool.query(`UPDATE reminder_settings SET twilio_auth_token = $1 WHERE clinic_id = $2`, [
+      encryptSecret(row.twilio_auth_token),
+      row.clinic_id,
+    ]);
+  }
+  const legacySmtpPasswords = await pool.query(
+    `SELECT clinic_id, smtp_pass FROM notification_settings
+     WHERE smtp_pass IS NOT NULL AND smtp_pass <> '' AND smtp_pass NOT LIKE '${ENC_PREFIX}%'`
+  );
+  for (const row of legacySmtpPasswords.rows) {
+    await pool.query(`UPDATE notification_settings SET smtp_pass = $1 WHERE clinic_id = $2`, [
+      encryptSecret(row.smtp_pass),
+      row.clinic_id,
+    ]);
+  }
+  if (legacyTwilioTokens.rows.length > 0 || legacySmtpPasswords.rows.length > 0) {
+    console.log(
+      `[migración] Se cifraron ${legacyTwilioTokens.rows.length} token(s) de Twilio y ${legacySmtpPasswords.rows.length} contraseña(s) SMTP que estaban en texto plano.`
+    );
+  }
 }
 
 // `tx`: pásalo (el objeto que te da withTransaction) cuando la escritura

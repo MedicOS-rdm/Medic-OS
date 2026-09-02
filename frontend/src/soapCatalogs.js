@@ -183,6 +183,26 @@ export const TREATMENT_DURATION_OPTIONS = [
   "Hasta terminar el frasco",
 ];
 
+// CRÍTICO de la auditoría ("prescripción demasiado permisiva"): la vía de
+// administración ahora es obligatoria en cada línea de la receta (ver
+// backend/src/validators.js -> isValidAdministrationRoute, que exige
+// exactamente uno de estos valores).
+export const ADMINISTRATION_ROUTE_OPTIONS = [
+  { value: "oral", label: "Oral" },
+  { value: "sublingual", label: "Sublingual" },
+  { value: "topica", label: "Tópica" },
+  { value: "inhalada", label: "Inhalada" },
+  { value: "nasal", label: "Nasal" },
+  { value: "oftalmica", label: "Oftálmica" },
+  { value: "otica", label: "Ótica" },
+  { value: "rectal", label: "Rectal" },
+  { value: "vaginal", label: "Vaginal" },
+  { value: "intramuscular", label: "Intramuscular" },
+  { value: "intravenosa", label: "Intravenosa" },
+  { value: "subcutanea", label: "Subcutánea" },
+  { value: "otra", label: "Otra" },
+];
+
 // ---------- P · Seguimiento ----------
 // Botones rápidos: cada uno fija la fecha exacta sumando "days" a partir
 // de hoy (el médico también puede escoger la fecha directamente en el

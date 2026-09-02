@@ -267,8 +267,8 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
     }
   }
 
-  async function handleSave(e) {
-    e.preventDefault();
+  async function handleSave(e, overrideAllergy = false, overrideReason = "") {
+    e?.preventDefault?.();
     setError(null);
     setSaving(true);
     const payload = {
@@ -296,10 +296,11 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
       follow_up_interval: note.follow_up_interval || null,
       follow_up_date: note.follow_up_date || null,
       plan: note.plan || null,
+      ...(overrideAllergy ? { confirm_allergy_override: true, override_reason: overrideReason } : {}),
     };
     try {
       let generatedRxId = null;
-      let allergyWarnings = [];
+      let duplicateWarnings = [];
       if (editingNoteId) {
         await api.consultations.update(editingNoteId, payload);
         setEditingNoteId(null);
@@ -310,17 +311,12 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
           ...payload,
         });
         generatedRxId = created.generated_prescription_id;
-        allergyWarnings = created.allergy_warnings || [];
+        duplicateWarnings = created.duplicate_warnings || [];
       }
       setNote(EMPTY_NOTE);
-      // GRAVE de la auditoría: alerta de alergias. Aquí la receta ya se
-      // generó (interrumpir a la mitad de guardar la nota para pedir
-      // confirmación complicaría demasiado el flujo), así que el aviso es
-      // posterior — el médico puede anularla de inmediato si no era la
-      // intención.
-      if (allergyWarnings.length > 0) {
-        const detail = allergyWarnings.map((c) => `• ${c.medication} (alergia registrada: ${c.allergy})`).join("\n");
-        alert(`⚠️ La receta generada incluye un medicamento que coincide con una alergia registrada del paciente:\n\n${detail}`);
+      if (duplicateWarnings.length > 0) {
+        const detail = duplicateWarnings.map((d) => `• ${d.generic_name}`).join("\n");
+        alert(`⚠️ Hay medicamentos repetidos (duplicidad terapéutica) en el tratamiento:\n\n${detail}`);
       }
       setSavedMsg(
         generatedRxId ? "✓ Nota guardada — se generó la receta automáticamente con los medicamentos del tratamiento." : true
@@ -328,7 +324,29 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
       setTimeout(() => setSavedMsg(false), generatedRxId ? 5000 : 2500);
       load();
     } catch (err) {
-      setError(err.message);
+      // CRÍTICO de la auditoría: la alerta de alergia ahora se resuelve
+      // ANTES de guardar nada — ni la nota ni la receta se persisten
+      // hasta que el médico confirme, con un motivo clínico, que decide
+      // continuar. Ya no es posible que quede una receta emitida con un
+      // conflicto de alergia sin confirmar.
+      if (err.allergy_conflicts?.length > 0) {
+        const detail = err.allergy_conflicts.map((c) => `• ${c.medication} (alergia registrada: ${c.allergy})`).join("\n");
+        const proceed = confirm(
+          `⚠️ Posible alergia registrada en este paciente:\n\n${detail}\n\nLa nota y la receta NO se guardarán hasta que confirmes. ¿Deseas continuar de todas formas?`
+        );
+        if (proceed) {
+          const reason = prompt("Indica el motivo clínico para continuar pese a la alerta de alergia (mínimo 10 caracteres):");
+          if (reason && reason.trim().length >= 10) {
+            setSaving(false);
+            return handleSave(null, true, reason.trim());
+          }
+          setError("Se requiere un motivo clínico de al menos 10 caracteres para continuar pese a la alerta de alergia.");
+        } else {
+          setError("No se guardó: hay una alerta de alergia sin confirmar.");
+        }
+      } else {
+        setError(err.message);
+      }
     } finally {
       setSaving(false);
     }

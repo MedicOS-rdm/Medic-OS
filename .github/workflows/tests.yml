@@ -1,0 +1,36 @@
+# GRAVE de la auditoría ("pruebas y aseguramiento de calidad"): existían
+# pruebas automatizadas reales (backend/tests/*.test.js) pero NADA las
+# ejecutaba automáticamente — dependían de que alguien se acordara de
+# correr `npm test` a mano antes de desplegar. Este workflow las corre en
+# cada push y cada pull request, así un cambio que rompe una validación
+# clínica (fechas, alergias, receta obligatoria, etc.) se detecta ANTES
+# de llegar a producción, no después.
+name: Pruebas backend
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Ejecutar pruebas automatizadas
+        run: npm test

@@ -4,9 +4,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db, logAudit, newQrToken, withTransaction } from "../db.js";
+import { requireRole } from "../auth.js";
 import { spellDateSpanish, formatDateSlashes } from "../spanishDates.js";
 import { notifyDocumentIssued } from "../notifications.js";
-import { ISO_DATE_RE, daysBetweenInclusive } from "../validators.js";
+import { ISO_DATE_RE, isValidIsoDate, daysBetweenInclusive } from "../validators.js";
 
 export const certificatesRouter = Router();
 
@@ -69,7 +70,26 @@ function parseLogoBuffer(dataUri) {
   }
 }
 
-certificatesRouter.post("/", async (req, res) => {
+// GRAVE de la auditoría ("un certificado médico-legal puede emitirse sin
+// un diagnóstico codificado válido"): valida el código contra el catálogo
+// CIE-10/11 vigente en la base y toma la descripción oficial de ahí, en
+// vez de confiar en el texto libre que mande el frontend (que podría no
+// corresponder al código, o quedar desactualizado si el catálogo cambia).
+async function resolveDiagnosis(diagnosis_code) {
+  if (!diagnosis_code || !String(diagnosis_code).trim()) {
+    return { error: "diagnosis_code es obligatorio: selecciona un diagnóstico del catálogo CIE-10." };
+  }
+  const row = await db.prepare(`SELECT code, label FROM cie11_catalog WHERE code = ?`).get(diagnosis_code.trim());
+  if (!row) {
+    return { error: "El código CIE-10 indicado no existe en el catálogo vigente." };
+  }
+  return { code: row.code, label: row.label };
+}
+
+// GRAVE de la auditoría ("privacidad y control de acceso"): igual que
+// con recetas, emitir/corregir/anular un certificado médico-legal es
+// un acto médico y requería exigir el rol de médico explícitamente.
+certificatesRouter.post("/", requireRole("medico"), async (req, res) => {
   const {
     patient_id,
     consultation_id,
@@ -86,12 +106,14 @@ certificatesRouter.post("/", async (req, res) => {
 
   if (!patient_id) return res.status(400).json({ error: "patient_id es obligatorio" });
   if (!date_from || !date_to) return res.status(400).json({ error: "date_from y date_to son obligatorios" });
-  if (!ISO_DATE_RE.test(date_from) || !ISO_DATE_RE.test(date_to)) {
-    return res.status(400).json({ error: "date_from y date_to deben tener formato AAAA-MM-DD" });
+  if (!isValidIsoDate(date_from) || !isValidIsoDate(date_to)) {
+    return res.status(400).json({ error: "date_from y date_to deben ser fechas calendario válidas en formato AAAA-MM-DD" });
   }
   if (!TYPE_LABELS[certificate_type]) {
     return res.status(400).json({ error: "certificate_type debe ser enfermedad, aislamiento o teletrabajo" });
   }
+  const diagnosis = await resolveDiagnosis(diagnosis_code);
+  if (diagnosis.error) return res.status(400).json({ error: diagnosis.error });
 
   const patient = await db.prepare(`SELECT * FROM patients WHERE id = ? AND clinic_id = ?`).get(patient_id, req.user.clinic_id);
   if (!patient) return res.status(400).json({ error: "El paciente no existe" });
@@ -136,8 +158,8 @@ certificatesRouter.post("/", async (req, res) => {
       req.user.clinic_id,
       patient_id,
       consultation_id ?? null,
-      diagnosis_code ?? null,
-      diagnosis_label ?? null,
+      diagnosis.code,
+      diagnosis.label,
       clinical_picture ?? null,
       presents_symptoms === false ? 0 : 1,
       certificate_type,
@@ -209,7 +231,7 @@ certificatesRouter.get("/:id", async (req, res) => {
 // "corregido" con un enlace hacia la versión vigente. La respuesta del
 // PDF de la versión vieja seguirá funcionando (para que quien ya la tenía
 // pueda verificar que fue reemplazada), pero con un aviso visible.
-certificatesRouter.put("/:id", async (req, res) => {
+certificatesRouter.put("/:id", requireRole("medico"), async (req, res) => {
   const existing = await db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Certificado no encontrado" });
   if (existing.status === "anulado") {
@@ -232,12 +254,14 @@ certificatesRouter.put("/:id", async (req, res) => {
   } = req.body;
 
   if (!date_from || !date_to) return res.status(400).json({ error: "date_from y date_to son obligatorios" });
-  if (!ISO_DATE_RE.test(date_from) || !ISO_DATE_RE.test(date_to)) {
-    return res.status(400).json({ error: "date_from y date_to deben tener formato AAAA-MM-DD" });
+  if (!isValidIsoDate(date_from) || !isValidIsoDate(date_to)) {
+    return res.status(400).json({ error: "date_from y date_to deben ser fechas calendario válidas en formato AAAA-MM-DD" });
   }
   if (!TYPE_LABELS[certificate_type]) {
     return res.status(400).json({ error: "certificate_type debe ser enfermedad, aislamiento o teletrabajo" });
   }
+  const diagnosis = await resolveDiagnosis(diagnosis_code);
+  if (diagnosis.error) return res.status(400).json({ error: diagnosis.error });
 
   const autoDays = daysBetweenInclusive(date_from, date_to);
   const finalDays = days_granted ?? autoDays;
@@ -275,8 +299,8 @@ certificatesRouter.put("/:id", async (req, res) => {
         existing.clinic_id,
         existing.patient_id,
         existing.consultation_id,
-        diagnosis_code ?? null,
-        diagnosis_label ?? null,
+        diagnosis.code,
+        diagnosis.label,
         clinical_picture ?? null,
         presents_symptoms === false ? 0 : 1,
         certificate_type,
@@ -335,7 +359,7 @@ certificatesRouter.put("/:id", async (req, res) => {
 // la base para el historial médico-legal — igual que anular una factura
 // en vez de destruirla. El enlace público deja de servir el PDF de
 // inmediato (ver share.js).
-certificatesRouter.delete("/:id", async (req, res) => {
+certificatesRouter.delete("/:id", requireRole("medico"), async (req, res) => {
   const existing = await db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Certificado no encontrado" });
   if (existing.status === "anulado") return res.status(409).json({ error: "Este certificado ya estaba anulado" });

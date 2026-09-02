@@ -8,10 +8,21 @@
 
 export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// CORREGIDO (GRAVE de la auditoría): la versión anterior solo comprobaba el
+// formato y usaba `new Date(...)`, que NORMALIZA fechas imposibles en vez de
+// rechazarlas (ej. "2026-02-31" se convertía silenciosamente en "2026-03-03").
+// Ahora se valida cada componente (año, mes, día) contra un calendario real:
+// se arma la fecha y se comparan sus componentes YA NORMALIZADOS contra los
+// que se pidieron originalmente — si no coinciden, es que la fecha pedida no
+// existía en el calendario.
 export function isValidIsoDate(value) {
   if (!ISO_DATE_RE.test(value)) return false;
-  const d = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(d.getTime());
+  const [year, month, day] = value.split("-").map(Number);
+  if (month < 1 || month > 12) return false;
+  if (day < 1 || day > 31) return false;
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
 }
 
 // A-07 de la auditoría: rangos deliberadamente amplios (cubren casos
@@ -69,6 +80,118 @@ function normalize(text) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, ""); // quita tildes/diacríticos
+}
+
+// CRÍTICO de la auditoría ("Prescripción demasiado permisiva"): antes el
+// backend solo exigía generic_name; dosis, vía, frecuencia y duración eran
+// opcionales, por lo que podía emitirse una receta clínicamente incompleta
+// (ej. un medicamento sin frecuencia). Ahora cada línea de una receta —tanto
+// la creada manualmente en "Nueva receta" como la autogenerada desde el
+// tratamiento de una consulta— exige el conjunto mínimo de datos para ser
+// clínicamente utilizable de forma segura.
+const ADMINISTRATION_ROUTES = new Set([
+  "oral",
+  "sublingual",
+  "topica",
+  "inhalada",
+  "nasal",
+  "oftalmica",
+  "otica",
+  "rectal",
+  "vaginal",
+  "intramuscular",
+  "intravenosa",
+  "subcutanea",
+  "otra",
+]);
+
+export function isValidAdministrationRoute(route) {
+  return ADMINISTRATION_ROUTES.has(normalize(route));
+}
+
+export function validatePrescriptionItem(item) {
+  if (!item || typeof item !== "object") return "Cada medicamento debe ser un elemento válido.";
+  if (typeof item.generic_name !== "string" || !item.generic_name.trim()) {
+    return "Cada medicamento necesita un nombre genérico.";
+  }
+  const label = item.generic_name.trim();
+  if (typeof item.dose !== "string" || !item.dose.trim()) {
+    return `Falta la dosis por toma de ${label}.`;
+  }
+  if (!isValidAdministrationRoute(item.route)) {
+    return `Falta o no es válida la vía de administración de ${label}.`;
+  }
+  if (typeof item.frequency !== "string" || !item.frequency.trim()) {
+    return `Falta la frecuencia de ${label}.`;
+  }
+  const hasDuration = typeof item.duration === "string" && item.duration.trim();
+  const hasQuantity = typeof item.quantity === "string" && item.quantity.trim();
+  if (!hasDuration && !hasQuantity) {
+    return `Falta la duración del tratamiento o la cantidad total a dispensar de ${label}.`;
+  }
+  return null;
+}
+
+export function validatePrescriptionItems(items) {
+  if (!Array.isArray(items) || items.length === 0) return "Agrega al menos un medicamento.";
+  if (items.length > 30) return "Una receta no puede tener más de 30 medicamentos.";
+  for (const item of items) {
+    const err = validatePrescriptionItem(item);
+    if (err) return err;
+  }
+  return null;
+}
+
+// CRÍTICO de la auditoría ("no existe una barrera de seguridad
+// farmacológica real"): esto NO es un motor de interacciones, contraindicaciones
+// ni ajuste por edad/peso/función renal-hepática — eso requiere integrar una
+// fuente farmacológica oficial licenciada y vigente, algo que está fuera del
+// alcance de esta corrección de código. Lo que sí se agrega, honestamente
+// acotado, es una detección de DUPLICIDAD TERAPÉUTICA simple (mismo
+// principio activo repetido en la misma receta), como aviso, para que el
+// catálogo local de ejemplo deje de dar una falsa sensación de seguridad.
+export function findDuplicateMedications(items) {
+  const seen = new Set();
+  const duplicates = [];
+  for (const item of items || []) {
+    const key = normalize(item?.generic_name);
+    if (!key) continue;
+    if (seen.has(key)) {
+      duplicates.push({ generic_name: item.generic_name });
+    } else {
+      seen.add(key);
+    }
+  }
+  return duplicates;
+}
+
+// CRÍTICO de la auditoría ("el override nunca debe ser una bandera booleana
+// sin trazabilidad"): cuando el médico decide continuar pese a una alerta de
+// alergia, exigimos una razón clínica explícita y con contenido real, para
+// que quede registrada en la bitácora de auditoría junto con el conflicto
+// detectado — nunca solo un `true` suelto.
+export const MIN_OVERRIDE_REASON_LENGTH = 10;
+export function isValidOverrideReason(reason) {
+  return typeof reason === "string" && reason.trim().length >= MIN_OVERRIDE_REASON_LENGTH;
+}
+
+// GRAVE de la auditoría ("la nota clínica completa puede guardarse
+// prácticamente vacía"): exige un mínimo de contenido médico-legalmente
+// razonable. No todos los campos del SOAP se exigen (algunos dependen del
+// tipo de atención), pero motivo de consulta, algún diagnóstico (código o
+// descripción) y un plan son el mínimo para que la nota tenga utilidad
+// clínica real.
+export function validateMinimumClinicalContent({ chief_complaint, diagnosis_code, diagnosis_label, plan }) {
+  if (!chief_complaint || !String(chief_complaint).trim()) {
+    return "El motivo de consulta es obligatorio.";
+  }
+  if ((!diagnosis_code || !String(diagnosis_code).trim()) && (!diagnosis_label || !String(diagnosis_label).trim())) {
+    return "Registra al menos un diagnóstico (código CIE-10 o, en su defecto, una descripción).";
+  }
+  if (!plan || !String(plan).trim()) {
+    return "El plan de manejo/tratamiento es obligatorio.";
+  }
+  return null;
 }
 
 export function findAllergyConflicts(allergiesText, items) {

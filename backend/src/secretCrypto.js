@@ -30,7 +30,21 @@ function loadOrCreateKey() {
   if (process.env.APP_ENCRYPTION_KEY) {
     const key = Buffer.from(process.env.APP_ENCRYPTION_KEY, "base64");
     if (key.length === 32) return key;
-    console.warn("[secretCrypto] APP_ENCRYPTION_KEY no decodifica a 32 bytes en base64; generando una clave local en su lugar.");
+    // GRAVE de la auditoría ("preparación para producción regulada"): si
+    // APP_ENCRYPTION_KEY viene definida pero no decodifica a exactamente
+    // 32 bytes en base64 (por ejemplo, un valor generado automáticamente
+    // por la plataforma de hosting con otro formato), antes se descartaba
+    // por completo y se generaba una clave LOCAL en disco — justo el
+    // problema que esta variable existe para evitar en hosts con disco
+    // efímero (la clave "de emergencia" no sobrevive un redeploy). Ahora,
+    // en vez de descartarla, se deriva una clave de 32 bytes válida a
+    // partir del valor recibido (con SHA-256) — así cualquier valor no
+    // vacío de APP_ENCRYPTION_KEY sigue siendo estable entre redeploys,
+    // sin depender de que tenga el formato exacto.
+    console.warn(
+      "[secretCrypto] APP_ENCRYPTION_KEY no decodifica a 32 bytes en base64; derivando una clave estable a partir de su valor (en vez de generar una local efímera)."
+    );
+    return crypto.createHash("sha256").update(process.env.APP_ENCRYPTION_KEY).digest();
   }
   if (fs.existsSync(keyPath)) return Buffer.from(fs.readFileSync(keyPath, "utf8").trim(), "base64");
   const key = crypto.randomBytes(32);

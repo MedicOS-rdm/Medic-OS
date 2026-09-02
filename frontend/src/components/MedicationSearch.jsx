@@ -39,6 +39,16 @@ export default function MedicationSearch({ onSelect }) {
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         placeholder="Escribe para buscar (ej. Paracetamol)…"
       />
+      {/* CRÍTICO de la auditoría ("no existe una barrera de seguridad
+          farmacológica real"): este catálogo es solo una lista local de
+          nombres/presentaciones para agilizar la escritura de la receta.
+          NO valida interacciones, contraindicaciones, ni dosis máximas —
+          eso requiere una fuente farmacológica oficial licenciada, fuera
+          del alcance de este catálogo. Se deja explícito para no generar
+          una falsa sensación de que el sistema ya filtra eso. */}
+      <p className="hint" style={{ marginTop: 4 }}>
+        Catálogo local de referencia rápida — no revisa interacciones, contraindicaciones ni dosis máximas. El criterio clínico es siempre del médico.
+      </p>
       {open && (
         <ul className="diagnosis-dropdown">
           {results.map((r) => (

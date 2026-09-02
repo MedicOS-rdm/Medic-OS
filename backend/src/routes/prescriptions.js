@@ -3,8 +3,15 @@ import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
 import crypto from "node:crypto";
 import { db, logAudit, newQrToken, withTransaction } from "../db.js";
+import { requireRole } from "../auth.js";
 import { notifyDocumentIssued } from "../notifications.js";
-import { findAllergyConflicts } from "../validators.js";
+import {
+  findAllergyConflicts,
+  findDuplicateMedications,
+  validatePrescriptionItems,
+  isValidOverrideReason,
+  MIN_OVERRIDE_REASON_LENGTH,
+} from "../validators.js";
 
 export const prescriptionsRouter = Router();
 
@@ -72,23 +79,19 @@ function parseLogoBuffer(dataUri) {
   }
 }
 
-prescriptionsRouter.post("/", async (req, res) => {
+// GRAVE de la auditoría ("privacidad y control de acceso"): emitir,
+// corregir o anular una receta es un acto médico con responsabilidad
+// profesional y legal — ninguna de estas tres rutas exigía rol de
+// médico antes de esta corrección.
+prescriptionsRouter.post("/", requireRole("medico"), async (req, res) => {
   const { patient_id, consultation_id, items, instructions } = req.body;
 
   if (!patient_id) return res.status(400).json({ error: "patient_id es obligatorio" });
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: "Agrega al menos un medicamento" });
-  }
-  if (items.length > 30) {
-    return res.status(400).json({ error: "Una receta no puede tener más de 30 medicamentos" });
-  }
-  // A-07 de la auditoría: validación mínima de cada línea (antes se
-  // guardaba cualquier cosa, incluyendo un medicamento sin nombre).
-  for (const item of items) {
-    if (!item || typeof item.generic_name !== "string" || !item.generic_name.trim()) {
-      return res.status(400).json({ error: "Cada medicamento necesita un nombre genérico" });
-    }
-  }
+  // CRÍTICO de la auditoría ("prescripción demasiado permisiva"): antes
+  // solo se exigía generic_name; ahora cada línea debe traer dosis, vía,
+  // frecuencia y (duración o cantidad) — ver validatePrescriptionItems.
+  const itemsError = validatePrescriptionItems(items);
+  if (itemsError) return res.status(400).json({ error: itemsError });
 
   const patient = await db.prepare(`SELECT id, allergies FROM patients WHERE id = ? AND clinic_id = ?`).get(patient_id, req.user.clinic_id);
   if (!patient) return res.status(400).json({ error: "El paciente no existe" });
@@ -96,16 +99,25 @@ prescriptionsRouter.post("/", async (req, res) => {
   // GRAVE de la auditoría: alerta de alergias antes de emitir la receta.
   // Es una CONFIRMACIÓN, no un bloqueo automático — si el médico ya la vio
   // y decide continuar (a su criterio clínico), reenvía la misma petición
-  // con confirm_allergy_override: true.
-  if (!req.body.confirm_allergy_override) {
-    const conflicts = findAllergyConflicts(patient.allergies, items);
-    if (conflicts.length > 0) {
+  // con confirm_allergy_override: true Y override_reason (CRÍTICO de la
+  // auditoría: el override nunca puede ser solo una bandera booleana sin
+  // trazabilidad — se exige un motivo clínico real y queda en auditoría).
+  const allergyConflicts = findAllergyConflicts(patient.allergies, items);
+  if (allergyConflicts.length > 0) {
+    if (!req.body.confirm_allergy_override) {
       return res.status(409).json({
         error: "El paciente tiene registrada una alergia que coincide con uno de estos medicamentos.",
-        allergy_conflicts: conflicts,
+        allergy_conflicts: allergyConflicts,
+      });
+    }
+    if (!isValidOverrideReason(req.body.override_reason)) {
+      return res.status(400).json({
+        error: `Para continuar pese a la alerta de alergia, indica el motivo clínico (mínimo ${MIN_OVERRIDE_REASON_LENGTH} caracteres).`,
+        allergy_conflicts: allergyConflicts,
       });
     }
   }
+  const duplicateWarnings = findDuplicateMedications(items);
 
   // A-08: si viene ligada a una consulta puntual, esa consulta debe ser
   // del mismo paciente.
@@ -150,6 +162,19 @@ prescriptionsRouter.post("/", async (req, res) => {
 
   await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "prescription", entityId: result.lastInsertRowid });
 
+  if (allergyConflicts.length > 0) {
+    // CRÍTICO de la auditoría: el override queda trazado junto con el
+    // conflicto exacto y el motivo clínico dado — nunca solo un booleano.
+    await logAudit({
+      clinicId: req.user.clinic_id,
+      actor: req.user.username,
+      action: "allergy_override",
+      entity: "prescription",
+      entityId: result.lastInsertRowid,
+      detail: { allergy_conflicts: allergyConflicts, reason: req.body.override_reason },
+    });
+  }
+
   const prescription = await db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(result.lastInsertRowid);
 
   const patientFull = await db.prepare(`SELECT * FROM patients WHERE id = ?`).get(patient_id);
@@ -162,7 +187,7 @@ prescriptionsRouter.post("/", async (req, res) => {
     patientName: patientFull ? `${patientFull.first_name} ${patientFull.last_name}` : "",
   }).catch((err) => console.error("Error enviando notificación de receta:", err));
 
-  res.status(201).json({ ...prescription, items: JSON.parse(prescription.items_json) });
+  res.status(201).json({ ...prescription, items: JSON.parse(prescription.items_json), duplicate_warnings: duplicateWarnings });
 });
 
 prescriptionsRouter.get("/patient/:patientId", async (req, res) => {
@@ -183,7 +208,7 @@ prescriptionsRouter.get("/:id", async (req, res) => {
 // sobrescribe la receta original. Crea una receta NUEVA con los cambios
 // (una corrección) y conserva la original marcada como "corregida", con
 // su propio folio y enlace hacia la versión vigente.
-prescriptionsRouter.put("/:id", async (req, res) => {
+prescriptionsRouter.put("/:id", requireRole("medico"), async (req, res) => {
   const existing = await db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Receta no encontrada" });
   if (existing.status === "anulado") {
@@ -194,28 +219,26 @@ prescriptionsRouter.put("/:id", async (req, res) => {
   }
 
   const { items, instructions } = req.body;
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: "Agrega al menos un medicamento" });
-  }
-  if (items.length > 30) {
-    return res.status(400).json({ error: "Una receta no puede tener más de 30 medicamentos" });
-  }
-  for (const item of items) {
-    if (!item || typeof item.generic_name !== "string" || !item.generic_name.trim()) {
-      return res.status(400).json({ error: "Cada medicamento necesita un nombre genérico" });
-    }
-  }
+  const itemsError = validatePrescriptionItems(items);
+  if (itemsError) return res.status(400).json({ error: itemsError });
 
-  if (!req.body.confirm_allergy_override) {
-    const patient = await db.prepare(`SELECT allergies FROM patients WHERE id = ?`).get(existing.patient_id);
-    const conflicts = findAllergyConflicts(patient?.allergies, items);
-    if (conflicts.length > 0) {
+  const patientForAllergy = await db.prepare(`SELECT allergies FROM patients WHERE id = ?`).get(existing.patient_id);
+  const allergyConflicts = findAllergyConflicts(patientForAllergy?.allergies, items);
+  if (allergyConflicts.length > 0) {
+    if (!req.body.confirm_allergy_override) {
       return res.status(409).json({
         error: "El paciente tiene registrada una alergia que coincide con uno de estos medicamentos.",
-        allergy_conflicts: conflicts,
+        allergy_conflicts: allergyConflicts,
+      });
+    }
+    if (!isValidOverrideReason(req.body.override_reason)) {
+      return res.status(400).json({
+        error: `Para continuar pese a la alerta de alergia, indica el motivo clínico (mínimo ${MIN_OVERRIDE_REASON_LENGTH} caracteres).`,
+        allergy_conflicts: allergyConflicts,
       });
     }
   }
+  const duplicateWarnings = findDuplicateMedications(items);
 
   const qr_token = newQrToken();
   const share_token = newShareToken();
@@ -270,17 +293,29 @@ prescriptionsRouter.put("/:id", async (req, res) => {
       tx,
     });
 
+    if (allergyConflicts.length > 0) {
+      await logAudit({
+        clinicId: req.user.clinic_id,
+        actor: req.user.username,
+        action: "allergy_override",
+        entity: "prescription",
+        entityId: result.lastInsertRowid,
+        detail: { allergy_conflicts: allergyConflicts, reason: req.body.override_reason },
+        tx,
+      });
+    }
+
     return result.lastInsertRowid;
   });
 
   const updated = await db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(newId);
-  res.json({ ...updated, items: JSON.parse(updated.items_json) });
+  res.json({ ...updated, items: JSON.parse(updated.items_json), duplicate_warnings: duplicateWarnings });
 });
 
 // DELETE /api/prescriptions/:id -> C-04: anula (con motivo obligatorio) en
 // vez de borrar físicamente. El enlace público deja de servir el PDF de
 // inmediato.
-prescriptionsRouter.delete("/:id", async (req, res) => {
+prescriptionsRouter.delete("/:id", requireRole("medico"), async (req, res) => {
   const existing = await db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Receta no encontrada" });
   if (existing.status === "anulado") return res.status(409).json({ error: "Esta receta ya estaba anulada" });
@@ -482,8 +517,9 @@ export function renderPrescriptionPdf({ rx, patient, items, qrBuffer, logoBuffer
   items.forEach((item, i) => {
     doc.font("Helvetica-Bold").fontSize(10).text(`${i + 1}. ${item.generic_name}${item.commercial_name ? ` (${item.commercial_name})` : ""}`);
     doc.font("Helvetica").fontSize(9).fillColor("#333");
-    const line = [item.presentation, item.dose, item.frequency, item.duration].filter(Boolean).join(" · ");
+    const line = [item.presentation, item.dose, item.route, item.frequency, item.duration || item.quantity].filter(Boolean).join(" · ");
     if (line) doc.text(line, { indent: 12 });
+    if (item.indication) doc.font("Helvetica-Oblique").text(`Indicación: ${item.indication}`, { indent: 12 });
     doc.fillColor("#000");
     doc.moveDown(0.4);
   });

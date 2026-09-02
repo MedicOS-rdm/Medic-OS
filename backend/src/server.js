@@ -7,7 +7,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { initDb } from "./db.js";
 import { requireAuth, requireRole } from "./auth.js";
-import { adminRateLimit } from "./rateLimiter.js";
+import { adminRateLimit, publicDocumentRateLimit } from "./rateLimiter.js";
 import { authRouter } from "./routes/auth.js";
 import { adminRouter } from "./routes/admin.js";
 import { verifyRouter } from "./routes/verify.js";
@@ -27,6 +27,37 @@ import { checkAndSendDueReminders } from "./reminders.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// GRAVE de la auditoría ("preparación para producción regulada"): nada
+// impedía desplegar en producción con ADMIN_SECRET ausente o débil (ej.
+// "admin123"), ni detectaba que JWT_SECRET/APP_ENCRYPTION_KEY no estén
+// fijados como variable de entorno (lo que, en un host con disco
+// efímero, invalida TODAS las sesiones y hace ilegibles TODOS los
+// secretos cifrados en cada redeploy — ver auth.js y secretCrypto.js).
+// Ahora el proceso se niega a arrancar en producción si detecta
+// cualquiera de estas condiciones, con un mensaje claro de qué falta,
+// en vez de arrancar "a medias" con una base de seguridad débil.
+if (process.env.NODE_ENV === "production") {
+  const problems = [];
+  if (!process.env.ADMIN_SECRET || process.env.ADMIN_SECRET.length < 20) {
+    problems.push("ADMIN_SECRET no está definido o tiene menos de 20 caracteres.");
+  }
+  if (!process.env.JWT_SECRET) {
+    problems.push(
+      "JWT_SECRET no está definido: en un host con disco efímero, cada redeploy invalidará todas las sesiones activas."
+    );
+  }
+  if (!process.env.APP_ENCRYPTION_KEY) {
+    problems.push(
+      "APP_ENCRYPTION_KEY no está definido: en un host con disco efímero, cada redeploy hará ilegibles los secretos (Twilio/SMTP) ya cifrados en la base."
+    );
+  }
+  if (problems.length > 0) {
+    console.error("No se puede iniciar en producción por configuración de seguridad incompleta:");
+    for (const p of problems) console.error(` - ${p}`);
+    process.exit(1);
+  }
+}
 
 // Render (y la mayoría de PaaS) terminan TLS en un proxy y reenvían la
 // petición por HTTP interno agregando X-Forwarded-*. Sin esto, req.protocol
@@ -99,8 +130,8 @@ app.use((req, _res, next) => {
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRateLimit, adminRouter); // protegida por ADMIN_SECRET (rate-limited), no por login normal
-app.use("/api/verify", verifyRouter); // lo escanea el QR de la receta
-app.use("/api/share", shareRouter); // PDF público de UNA receta/certificado (lo descarga WhatsApp)
+app.use("/api/verify", publicDocumentRateLimit, verifyRouter); // lo escanea el QR de la receta
+app.use("/api/share", publicDocumentRateLimit, shareRouter); // PDF público de UNA receta/certificado (lo descarga WhatsApp)
 app.use("/api/reminders", remindersWebhookRouter); // lo llama Twilio (respuestas 1/2)
 
 // ---------- A partir de aquí, todo requiere sesión de médico/secretaria ----------
