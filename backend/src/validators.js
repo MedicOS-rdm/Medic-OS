@@ -58,6 +58,37 @@ export function computeBmi(weight_kg, height_cm) {
   return Math.round((weight_kg / (heightM * heightM)) * 10) / 10;
 }
 
+// Corrección funcional (rol "enfermera"): rangos clínicos para marcar un
+// signo vital como ALTERADO (no confundir con VITAL_RANGES, que solo
+// verifica que el dato ingresado sea físicamente plausible). Estos son
+// umbrales generales de adulto — no ajustan por edad pediátrica ni
+// condición previa del paciente; son una alerta visual de apoyo, nunca un
+// diagnóstico ni un sustituto del criterio clínico del médico.
+export function vitalsAlerts({ blood_pressure, heart_rate, temperature_c } = {}) {
+  const alerts = [];
+  if (heart_rate !== undefined && heart_rate !== null && heart_rate !== "") {
+    const hr = Number(heart_rate);
+    if (!Number.isNaN(hr) && (hr < 60 || hr > 100)) {
+      alerts.push({ field: "heart_rate", message: hr < 60 ? "Frecuencia cardiaca baja (bradicardia)" : "Frecuencia cardiaca alta (taquicardia)" });
+    }
+  }
+  if (temperature_c !== undefined && temperature_c !== null && temperature_c !== "") {
+    const temp = Number(temperature_c);
+    if (!Number.isNaN(temp) && (temp < 35.5 || temp > 37.5)) {
+      alerts.push({ field: "temperature_c", message: temp > 37.5 ? "Temperatura elevada (fiebre)" : "Temperatura baja (hipotermia)" });
+    }
+  }
+  if (blood_pressure && BLOOD_PRESSURE_RE.test(String(blood_pressure).trim())) {
+    const [sys, dia] = String(blood_pressure).trim().split("/").map(Number);
+    if (sys >= 140 || dia >= 90) {
+      alerts.push({ field: "blood_pressure", message: "Presión arterial elevada (hipertensión)" });
+    } else if (sys < 90 || dia < 60) {
+      alerts.push({ field: "blood_pressure", message: "Presión arterial baja (hipotensión)" });
+    }
+  }
+  return alerts;
+}
+
 // GRAVE de la auditoría ("las fechas se validan solo por formato y pueden
 // aceptar fechas calendario imposibles"): centralizado aquí para que
 // tanto el alta interna de pacientes (patients.js) como la reserva

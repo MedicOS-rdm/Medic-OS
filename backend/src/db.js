@@ -641,6 +641,20 @@ export async function initDb() {
     END $$;
   `);
 
+  // Corrección funcional (rol "enfermera"): registrar signos vitales
+  // estaba atado a que existiera una cita ESE día — si no había ninguna,
+  // la enfermera no tenía dónde ingresarlos. Ahora también se guarda un
+  // "último signo vital" directamente en el paciente, editable al hacer
+  // clic en él desde la lista (igual que alergias/antecedentes), sin
+  // depender de ninguna cita.
+  await ensureColumn("patients", "last_blood_pressure", "TEXT");
+  await ensureColumn("patients", "last_heart_rate", "INTEGER");
+  await ensureColumn("patients", "last_temperature_c", "REAL");
+  await ensureColumn("patients", "last_weight_kg", "REAL");
+  await ensureColumn("patients", "last_height_cm", "REAL");
+  await ensureColumn("patients", "vitals_recorded_at", "TEXT");
+  await ensureColumn("patients", "vitals_recorded_by", "TEXT");
+
   // Reserva pública de citas: el médico decide si activa la reserva en
   // línea, cuánto dura cada turno por defecto, y su horario semanal de
   // atención (JSON: { "0": [["08:00","13:00"]], "1": [...], ... } con

@@ -1,11 +1,31 @@
 import { Router } from "express";
 import { db, logAudit, withTransaction } from "../db.js";
 import { requireRole } from "../auth.js";
-import { validateBirthDate } from "../validators.js";
+import { validateBirthDate, validateVitals } from "../validators.js";
 
 export const patientsRouter = Router();
 
-const CLINICAL_FIELDS = ["allergies", "chronic_conditions", "notes"];
+const CLINICAL_FIELDS = [
+  "allergies",
+  "chronic_conditions",
+  "notes",
+  "last_blood_pressure",
+  "last_heart_rate",
+  "last_temperature_c",
+  "last_weight_kg",
+  "last_height_cm",
+  "vitals_recorded_at",
+  "vitals_recorded_by",
+];
+// Corrección funcional (rol "enfermera"): antes registrar signos vitales
+// dependía de que existiera una cita ESE día (PUT /appointments/:id/intake)
+// — si no había ninguna, no había forma de ingresarlos. Ahora también se
+// puede guardar un "último signo vital" directamente en el paciente,
+// desde el mismo formulario donde se editan alergias/antecedentes, sin
+// depender de ninguna cita. Se aceptan con los mismos nombres que usa el
+// resto de la app (blood_pressure, heart_rate, etc.) y se guardan en las
+// columnas last_* junto con quién y cuándo los registró.
+const VITAL_INPUT_FIELDS = ["blood_pressure", "heart_rate", "temperature_c", "weight_kg", "height_cm"];
 
 // Corrección funcional (nuevo rol "enfermera"): además del médico, la
 // enfermera SÍ debe poder ver y registrar alergias y antecedentes
@@ -147,6 +167,16 @@ patientsRouter.put("/:id", async (req, res) => {
   const body = { ...req.body };
   if (!canAccessClinicalFields(req.user.role)) {
     for (const f of CLINICAL_FIELDS) delete body[f];
+    for (const f of VITAL_INPUT_FIELDS) delete body[f];
+  }
+
+  // Corrección funcional (rol "enfermera"): si viene algún signo vital en
+  // el cuerpo de la petición, se valida (mismo rango que usa la consulta
+  // clínica) y se guarda con quién y cuándo lo registró.
+  const hasVitals = VITAL_INPUT_FIELDS.some((f) => body[f] !== undefined);
+  if (hasVitals) {
+    const vitalsError = validateVitals(body);
+    if (vitalsError) return res.status(400).json({ error: vitalsError });
   }
 
   const merged = { ...existing, ...body };
@@ -159,6 +189,10 @@ patientsRouter.put("/:id", async (req, res) => {
         email = ?, emergency_contact_name = ?, emergency_contact_phone = ?,
         blood_type = ?, allergies = ?, chronic_conditions = ?, notes = ?,
         id_number = ?, address = ?, workplace = ?, job_title = ?, clinical_history_number = ?,
+        last_blood_pressure = ?, last_heart_rate = ?, last_temperature_c = ?,
+        last_weight_kg = ?, last_height_cm = ?,
+        vitals_recorded_by = CASE WHEN ? THEN ? ELSE vitals_recorded_by END,
+        vitals_recorded_at = CASE WHEN ? THEN to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS') ELSE vitals_recorded_at END,
         updated_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
        WHERE id = ? AND clinic_id = ?`
     )
@@ -180,11 +214,25 @@ patientsRouter.put("/:id", async (req, res) => {
       merged.workplace,
       merged.job_title,
       merged.clinical_history_number,
+      hasVitals ? (body.blood_pressure ?? null) : existing.last_blood_pressure,
+      hasVitals ? (body.heart_rate || null) : existing.last_heart_rate,
+      hasVitals ? (body.temperature_c || null) : existing.last_temperature_c,
+      hasVitals ? (body.weight_kg || null) : existing.last_weight_kg,
+      hasVitals ? (body.height_cm || null) : existing.last_height_cm,
+      hasVitals,
+      req.user.username,
+      hasVitals,
       req.params.id,
       req.user.clinic_id
     );
 
-  await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "update", entity: "patient", entityId: req.params.id });
+  await logAudit({
+    clinicId: req.user.clinic_id,
+    actor: req.user.username,
+    action: hasVitals ? "update_with_vitals" : "update",
+    entity: "patient",
+    entityId: req.params.id,
+  });
   const updated = await db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id);
   res.json(redactForRole(updated, req.user.role));
 });

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../api.js";
+import { vitalsAlerts } from "../utils/vitals.js";
 
 // Nuevo rol "enfermera": permite registrar signos vitales de ingreso
 // ligados a una cita, SIN necesidad de abrir la nota clínica completa
@@ -18,6 +19,9 @@ export default function IntakeVitalsModal({ appointment, onClose, onSaved }) {
   const [error, setError] = useState(null);
 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
+  // Corrección funcional: resalta en rojo mientras se escribe si el valor
+  // ingresado está fuera de rango clínico normal.
+  const alerts = vitalsAlerts(form);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -49,15 +53,34 @@ export default function IntakeVitalsModal({ appointment, onClose, onSaved }) {
         <form onSubmit={handleSubmit} className="form-grid">
           <label>
             Presión arterial
-            <input value={form.blood_pressure} onChange={set("blood_pressure")} placeholder="120/80" />
+            <input
+              value={form.blood_pressure}
+              onChange={set("blood_pressure")}
+              placeholder="120/80"
+              className={alerts.blood_pressure ? "input-alert" : ""}
+            />
+            {alerts.blood_pressure && <span className="form-alert">⚠ {alerts.blood_pressure}</span>}
           </label>
           <label>
             Frecuencia cardíaca (lpm)
-            <input type="number" value={form.heart_rate} onChange={set("heart_rate")} />
+            <input
+              type="number"
+              value={form.heart_rate}
+              onChange={set("heart_rate")}
+              className={alerts.heart_rate ? "input-alert" : ""}
+            />
+            {alerts.heart_rate && <span className="form-alert">⚠ {alerts.heart_rate}</span>}
           </label>
           <label>
             Temperatura (°C)
-            <input type="number" step="0.1" value={form.temperature_c} onChange={set("temperature_c")} />
+            <input
+              type="number"
+              step="0.1"
+              value={form.temperature_c}
+              onChange={set("temperature_c")}
+              className={alerts.temperature_c ? "input-alert" : ""}
+            />
+            {alerts.temperature_c && <span className="form-alert">⚠ {alerts.temperature_c}</span>}
           </label>
           <label>
             Peso (kg)

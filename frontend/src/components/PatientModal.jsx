@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatAge } from "../utils/age.js";
+import { vitalsAlerts } from "../utils/vitals.js";
 
 const EMPTY = {
   first_name: "",
@@ -19,15 +20,34 @@ const EMPTY = {
   workplace: "",
   job_title: "",
   clinical_history_number: "",
+  blood_pressure: "",
+  heart_rate: "",
+  temperature_c: "",
+  weight_kg: "",
+  height_cm: "",
 };
 
 // patient: si se pasa, el modal edita ese paciente en vez de crear uno nuevo.
-// canEditClinical: nuevo rol "enfermera" — puede ver/editar alergias y
-// antecedentes igual que el médico; por defecto sigue el valor de isMedico
-// para no romper los usos existentes del componente.
+// canEditClinical: nuevo rol "enfermera" — puede ver/editar alergias,
+// antecedentes Y signos vitales igual que el médico (antes los signos
+// vitales solo se podían registrar si existía una cita ESE día — si no
+// había ninguna, la enfermera no tenía dónde ingresarlos). Por defecto
+// sigue el valor de isMedico para no romper los usos existentes.
 export default function PatientModal({ isMedico = true, canEditClinical = isMedico, patient = null, onClose, onCreated, onUpdated }) {
   const isEdit = Boolean(patient);
-  const [form, setForm] = useState(() => (patient ? { ...EMPTY, ...patient } : EMPTY));
+  const [form, setForm] = useState(() =>
+    patient
+      ? {
+          ...EMPTY,
+          ...patient,
+          blood_pressure: patient.last_blood_pressure || "",
+          heart_rate: patient.last_heart_rate || "",
+          temperature_c: patient.last_temperature_c || "",
+          weight_kg: patient.last_weight_kg || "",
+          height_cm: patient.last_height_cm || "",
+        }
+      : EMPTY
+  );
   const [historyPlaceholder, setHistoryPlaceholder] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -42,6 +62,10 @@ export default function PatientModal({ isMedico = true, canEditClinical = isMedi
   }, [isEdit]);
 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
+  // Corrección funcional: "si los signos vitales están alterados se
+  // presentarán de rojo para marcar la alerta" — se calcula en cada
+  // tecleo, sin esperar a guardar.
+  const alerts = canEditClinical ? vitalsAlerts(form) : {};
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -149,12 +173,65 @@ export default function PatientModal({ isMedico = true, canEditClinical = isMedi
                   value={form.allergies || ""}
                   onChange={set("allergies")}
                   placeholder="Ej. Penicilina — se mostrará como alerta roja"
+                  className={form.allergies ? "input-alert" : ""}
                 />
               </label>
+              {form.allergies && <p className="form-alert span-2">⚠ Alergia registrada: {form.allergies}</p>}
               <label className="span-2">
-                Enfermedades crónicas / antecedentes
+                Enfermedades crónicas / antecedentes patológicos importantes
                 <textarea rows={2} value={form.chronic_conditions || ""} onChange={set("chronic_conditions")} />
               </label>
+
+              {/* Corrección funcional (rol "enfermera"): signos vitales
+                  editables desde aquí, sin depender de que exista una
+                  cita — con resaltado en rojo si el valor está alterado. */}
+              <div className="span-2">
+                <h3 className="history-title">Signos vitales</h3>
+              </div>
+              <label>
+                Presión arterial
+                <input
+                  value={form.blood_pressure || ""}
+                  onChange={set("blood_pressure")}
+                  placeholder="120/80"
+                  className={alerts.blood_pressure ? "input-alert" : ""}
+                />
+                {alerts.blood_pressure && <span className="form-alert">⚠ {alerts.blood_pressure}</span>}
+              </label>
+              <label>
+                Frecuencia cardíaca (lpm)
+                <input
+                  type="number"
+                  value={form.heart_rate || ""}
+                  onChange={set("heart_rate")}
+                  className={alerts.heart_rate ? "input-alert" : ""}
+                />
+                {alerts.heart_rate && <span className="form-alert">⚠ {alerts.heart_rate}</span>}
+              </label>
+              <label>
+                Temperatura (°C)
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.temperature_c || ""}
+                  onChange={set("temperature_c")}
+                  className={alerts.temperature_c ? "input-alert" : ""}
+                />
+                {alerts.temperature_c && <span className="form-alert">⚠ {alerts.temperature_c}</span>}
+              </label>
+              <label>
+                Peso (kg)
+                <input type="number" step="0.1" value={form.weight_kg || ""} onChange={set("weight_kg")} />
+              </label>
+              <label>
+                Talla (cm)
+                <input type="number" step="0.1" value={form.height_cm || ""} onChange={set("height_cm")} />
+              </label>
+              {patient?.vitals_recorded_at && (
+                <p className="hint span-2">
+                  Últimos signos registrados el {patient.vitals_recorded_at} por {patient.vitals_recorded_by || "—"}.
+                </p>
+              )}
             </>
           )}
 

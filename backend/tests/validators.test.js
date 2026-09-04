@@ -23,6 +23,7 @@ import {
   findAllergyConflicts,
   validateBirthDate,
   validateBookingSchedule,
+  vitalsAlerts,
 } from "../src/validators.js";
 
 test("isValidIsoDate acepta AAAA-MM-DD y rechaza otros formatos", () => {
@@ -267,4 +268,31 @@ test("validateBirthDate (compartida entre alta de pacientes y reserva pública) 
   assert.equal(validateBirthDate(""), null); // opcional
   assert.match(validateBirthDate("2099-01-01"), /futura/);
   assert.match(validateBirthDate("2026-02-31"), /fecha calendario válida/);
+});
+
+// ---------- Corrección funcional: alerta roja por signos vitales alterados ----------
+
+test("vitalsAlerts no marca nada cuando todos los signos están en rango normal", () => {
+  const alerts = vitalsAlerts({ blood_pressure: "120/80", heart_rate: 75, temperature_c: 36.5 });
+  assert.deepEqual(alerts, []);
+});
+
+test("vitalsAlerts detecta taquicardia y bradicardia", () => {
+  assert.match(vitalsAlerts({ heart_rate: 110 })[0].message, /taquicardia/);
+  assert.match(vitalsAlerts({ heart_rate: 50 })[0].message, /bradicardia/);
+});
+
+test("vitalsAlerts detecta fiebre e hipotermia", () => {
+  assert.match(vitalsAlerts({ temperature_c: 38.5 })[0].message, /fiebre/);
+  assert.match(vitalsAlerts({ temperature_c: 34.8 })[0].message, /hipotermia/);
+});
+
+test("vitalsAlerts detecta hipertensión e hipotensión", () => {
+  assert.match(vitalsAlerts({ blood_pressure: "150/95" })[0].message, /hipertensión/);
+  assert.match(vitalsAlerts({ blood_pressure: "85/55" })[0].message, /hipotensión/);
+});
+
+test("vitalsAlerts ignora campos vacíos o no enviados", () => {
+  assert.deepEqual(vitalsAlerts({}), []);
+  assert.deepEqual(vitalsAlerts({ heart_rate: "", temperature_c: null, blood_pressure: undefined }), []);
 });

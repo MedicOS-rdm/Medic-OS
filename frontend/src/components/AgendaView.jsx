@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { STATUS, NEXT_STATUS } from "../statusConfig.js";
+import { vitalsAlerts } from "../utils/vitals.js";
 
 function formatTime(iso) {
   const d = new Date(iso);
@@ -61,6 +62,19 @@ export default function AgendaView({ appointments, loading, isMedico, canRecordV
                     las citas que agendó el propio paciente por internet. */}
                 {appt.source === "reserva_publica" && <span className="source-tag"> · 🌐 Reserva en línea</span>}
               </div>
+              {/* Corrección funcional: signos vitales de ingreso alterados
+                  se marcan en rojo, igual que las alergias. */}
+              {Object.entries(
+                vitalsAlerts({
+                  blood_pressure: appt.intake_blood_pressure,
+                  heart_rate: appt.intake_heart_rate,
+                  temperature_c: appt.intake_temperature_c,
+                })
+              ).map(([field, message]) => (
+                <div className="allergy-alert" key={field}>
+                  ⚠ {message}
+                </div>
+              ))}
               {/* Nuevo rol "enfermera": puede registrar signos vitales de
                   ingreso sin necesidad de abrir la nota clínica completa. */}
               {canRecordVitals && (

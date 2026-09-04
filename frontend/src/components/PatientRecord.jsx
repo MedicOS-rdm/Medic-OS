@@ -10,6 +10,7 @@ import MultiSelectChips from "./MultiSelectChips.jsx";
 import PhysicalExamGrid from "./PhysicalExamGrid.jsx";
 import { formatAge } from "../utils/age.js";
 import { localISODate } from "../utils/date.js";
+import { vitalsAlerts } from "../utils/vitals.js";
 import {
   LAB_STUDIES,
   IMAGING_STUDIES,
@@ -376,6 +377,10 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
     ? { code: todaysConsultation.diagnosis_code, label: todaysConsultation.diagnosis_label }
     : null;
 
+  // Corrección funcional: "si los signos vitales están alterados se
+  // presentarán de rojo para marcar la alerta".
+  const vitalAlerts = vitalsAlerts(note);
+
   return (
     <div className="record-shell">
       <button className="btn-ghost back-btn" onClick={onBack}>
@@ -688,11 +693,21 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
               <div className="vitals-grid">
                 <label>
                   Presión arterial
-                  <input value={note.blood_pressure} onChange={set("blood_pressure")} placeholder="120/80" />
+                  <input
+                    value={note.blood_pressure}
+                    onChange={set("blood_pressure")}
+                    placeholder="120/80"
+                    className={vitalAlerts.blood_pressure ? "input-alert" : ""}
+                  />
+                  {vitalAlerts.blood_pressure && <span className="form-alert">⚠ {vitalAlerts.blood_pressure}</span>}
                 </label>
                 <label>
                   FC (lpm)
-                  <select value={note.heart_rate} onChange={set("heart_rate")}>
+                  <select
+                    value={note.heart_rate}
+                    onChange={set("heart_rate")}
+                    className={vitalAlerts.heart_rate ? "input-alert" : ""}
+                  >
                     <option value="">Seleccionar…</option>
                     {numericOptions(30, 220, 1, note.heart_rate).map((v) => (
                       <option key={v} value={v}>
@@ -700,10 +715,15 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                       </option>
                     ))}
                   </select>
+                  {vitalAlerts.heart_rate && <span className="form-alert">⚠ {vitalAlerts.heart_rate}</span>}
                 </label>
                 <label>
                   Temp (°C)
-                  <select value={note.temperature_c} onChange={set("temperature_c")}>
+                  <select
+                    value={note.temperature_c}
+                    onChange={set("temperature_c")}
+                    className={vitalAlerts.temperature_c ? "input-alert" : ""}
+                  >
                     <option value="">Seleccionar…</option>
                     {numericOptions(34, 42, 0.1, note.temperature_c).map((v) => (
                       <option key={v} value={v}>
@@ -711,6 +731,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                       </option>
                     ))}
                   </select>
+                  {vitalAlerts.temperature_c && <span className="form-alert">⚠ {vitalAlerts.temperature_c}</span>}
                 </label>
                 <label>
                   Peso (kg)
