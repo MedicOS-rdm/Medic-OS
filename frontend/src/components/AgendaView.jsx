@@ -69,6 +69,7 @@ export default function AgendaView({ appointments, loading, isMedico, canRecordV
                   blood_pressure: appt.intake_blood_pressure,
                   heart_rate: appt.intake_heart_rate,
                   temperature_c: appt.intake_temperature_c,
+                  respiratory_rate: appt.intake_respiratory_rate,
                 })
               ).map(([field, message]) => (
                 <div className="allergy-alert" key={field}>

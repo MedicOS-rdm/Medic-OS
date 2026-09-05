@@ -12,9 +12,27 @@ usersRouter.get("/suggest-username", async (req, res) => {
   res.json({ suggestion: await suggestAvailableUsername(desired) });
 });
 
+// GET /api/users/limits -> cuántas cuentas de asistente puede tener esta
+// clínica (lo decide el superadministrador) y cuántas ya tiene, para que
+// "Mi Equipo" pueda mostrar el mensaje correcto sin adivinar.
+usersRouter.get("/limits", async (req, res) => {
+  const clinic = await db.prepare(`SELECT max_assistants FROM clinics WHERE id = ?`).get(req.user.clinic_id);
+  const { count } = await db
+    .prepare(`SELECT COUNT(*) AS count FROM users WHERE clinic_id = ? AND role IN ('secretaria', 'enfermera')`)
+    .get(req.user.clinic_id);
+  res.json({ max_assistants: clinic?.max_assistants ?? 1, current_assistants: Number(count) });
+});
+
 usersRouter.get("/", async (req, res) => {
+  // CORRECCIÓN 2 solicitada por el usuario ("Mi Equipo"): el médico va
+  // primero, luego la enfermera y al final la secretaria (si existe) —
+  // antes el orden era alfabético por rol ("enfermera" < "medico" <
+  // "secretaria"), que no reflejaba la jerarquía real del consultorio.
   const rows = await db
-    .prepare(`SELECT id, username, full_name, role, created_at FROM users WHERE clinic_id = ? ORDER BY role, full_name`)
+    .prepare(
+      `SELECT id, username, full_name, role, created_at FROM users WHERE clinic_id = ?
+       ORDER BY CASE role WHEN 'medico' THEN 0 WHEN 'enfermera' THEN 1 ELSE 2 END, full_name`
+    )
     .all(req.user.clinic_id);
   res.json(rows);
 });
@@ -27,20 +45,27 @@ usersRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "username, password y full_name son obligatorios" });
   }
   // Nuevo rol "enfermera": el médico elige qué tipo de cuenta de asistente
-  // da de alta. Sigue habiendo como máximo UNA cuenta de asistente por
-  // clínica (sea secretaria o enfermera) — antes no había ningún límite
-  // explícito en el backend, así que se agrega ahora junto con la opción
-  // de elegir el rol.
+  // da de alta.
   const finalRole = role || "secretaria";
   if (!ASSISTANT_ROLES.includes(finalRole)) {
     return res.status(400).json({ error: `role debe ser uno de: ${ASSISTANT_ROLES.join(", ")}` });
   }
+
+  // CORRECCIÓN 1 solicitada por el usuario: el límite de cuentas de
+  // asistente ya no está fijo en el código — lo decide el
+  // superadministrador de la plataforma, clínica por clínica (ver
+  // admin.js -> PUT /admin/clinics/:id/max-assistants).
+  const clinic = await db.prepare(`SELECT max_assistants FROM clinics WHERE id = ?`).get(req.user.clinic_id);
+  const maxAssistants = clinic?.max_assistants ?? 1;
   const { count } = await db
     .prepare(`SELECT COUNT(*) AS count FROM users WHERE clinic_id = ? AND role IN ('secretaria', 'enfermera')`)
     .get(req.user.clinic_id);
-  if (Number(count) >= 1) {
+  if (Number(count) >= maxAssistants) {
     return res.status(409).json({
-      error: "Ya existe una cuenta de asistente (secretaria o enfermera) en esta clínica. Elimínala primero si quieres reemplazarla por otra.",
+      error:
+        maxAssistants === 0
+          ? "Tu plataforma no te permite agregar cuentas de asistente. Contacta al administrador si necesitas una."
+          : `Ya alcanzaste el límite de ${maxAssistants} cuenta(s) de asistente que tu plataforma permite para este consultorio. Elimina una para agregar otra, o contacta al administrador para ampliar el límite.`,
     });
   }
 

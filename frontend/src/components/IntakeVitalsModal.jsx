@@ -14,6 +14,7 @@ export default function IntakeVitalsModal({ appointment, onClose, onSaved }) {
     blood_pressure: appointment.intake_blood_pressure || "",
     heart_rate: appointment.intake_heart_rate || "",
     temperature_c: appointment.intake_temperature_c || "",
+    respiratory_rate: appointment.intake_respiratory_rate || "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -34,6 +35,7 @@ export default function IntakeVitalsModal({ appointment, onClose, onSaved }) {
         blood_pressure: form.blood_pressure || null,
         heart_rate: form.heart_rate || null,
         temperature_c: form.temperature_c || null,
+        respiratory_rate: form.respiratory_rate || null,
       });
       onSaved();
     } catch (err) {
@@ -81,6 +83,16 @@ export default function IntakeVitalsModal({ appointment, onClose, onSaved }) {
               className={alerts.temperature_c ? "input-alert" : ""}
             />
             {alerts.temperature_c && <span className="form-alert">⚠ {alerts.temperature_c}</span>}
+          </label>
+          <label>
+            Frecuencia respiratoria (rpm)
+            <input
+              type="number"
+              value={form.respiratory_rate}
+              onChange={set("respiratory_rate")}
+              className={alerts.respiratory_rate ? "input-alert" : ""}
+            />
+            {alerts.respiratory_rate && <span className="form-alert">⚠ {alerts.respiratory_rate}</span>}
           </label>
           <label>
             Peso (kg)

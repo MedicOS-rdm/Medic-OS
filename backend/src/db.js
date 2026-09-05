@@ -624,6 +624,56 @@ export async function initDb() {
   await addCheckConstraintNotValid("consultations", "consultations_heart_rate_check", "heart_rate BETWEEN 20 AND 300");
   await addCheckConstraintNotValid("consultations", "consultations_temperature_check", "temperature_c BETWEEN 25 AND 45");
   await addCheckConstraintNotValid("consultations", "consultations_weight_check", "weight_kg BETWEEN 0.3 AND 400");
+  // CORRECCIÓN 1 (solicitada por el usuario): antes cualquier médico
+  // podía dar de alta 1 asistente por defecto, con el límite fijo escrito
+  // en el código. Ahora es el superadministrador (admin.html) quien
+  // decide, clínica por clínica, cuántas cuentas de asistente puede tener
+  // cada médico contratante — 0, 1, 2... el valor que el superadmin
+  // configure.
+  await ensureColumn("clinics", "max_assistants", "INTEGER NOT NULL DEFAULT 1");
+
+  // CORRECCIÓN 4 (solicitada por el usuario): "actualizar el SOAP a la
+  // historia clínica completa según la normativa ecuatoriana". Se agregan
+  // los bloques del Formulario 002 (Consulta Externa) del Acuerdo
+  // Ministerial 00115-2021 del MSP que faltaban por completo: frecuencia
+  // respiratoria (bloque 6, signos vitales), antecedentes familiares
+  // (bloque 4) y revisión actual de órganos y sistemas (bloque 5). El
+  // bloque 8 (diagnóstico) del mismo formulario exige marcar cada
+  // diagnóstico como "presuntivo" o "definitivo" — antes no existía esa
+  // distinción.
+  await ensureColumn("consultations", "respiratory_rate", "INTEGER");
+  await ensureColumn("consultations", "family_history_conditions_json", "TEXT"); // JSON: string[]
+  await ensureColumn("consultations", "family_history_notes", "TEXT");
+  await ensureColumn("consultations", "review_of_systems_affected_json", "TEXT"); // JSON: string[]
+  await ensureColumn("consultations", "review_of_systems_notes", "TEXT");
+  await ensureColumn("consultations", "diagnosis_certainty", "TEXT"); // 'presuntivo' | 'definitivo'
+
+  // CORRECCIÓN 3 (solicitada por el usuario): "actualizar el catálogo
+  // CIE-10 completo". El catálogo base (11,038 códigos) viene de un
+  // dataset genérico de referencia en GitHub que usa la nomenclatura
+  // CIE-10 clásica (A90/A91 para dengue) y le faltan las subcategorías
+  // A97.0-A97.2/A97.9 (Dengue sin/con signos de alarma, grave, no
+  // especificado) que la OMS agregó en la actualización 2018 y que el MSP
+  // de Ecuador usa activamente — el caso concreto que reportó el usuario.
+  //
+  // Reemplazar los 11,038 códigos por un catálogo oficial verificado
+  // completo del MSP está fuera de lo que se puede hacer de forma
+  // responsable en una sola corrección de código (no existe una fuente
+  // descargable, estructurada y confiable de ese tamaño para validar
+  // automáticamente). En su lugar, se mantiene un archivo de
+  // "correcciones" (cie10-overlay.json) que se aplica ENCIMA del catálogo
+  // base en cada arranque — así se puede seguir corrigiendo/ampliando
+  // categorías específicas con fuentes verificadas, sin depender de
+  // volver a sembrar las 11 mil filas cada vez.
+  const overlayPath = path.join(__dirname, "..", "data", "cie10-overlay.json");
+  const overlayData = JSON.parse(await fs.readFile(overlayPath, "utf-8"));
+  await pool.query(
+    `INSERT INTO cie11_catalog (code, label)
+     SELECT * FROM UNNEST($1::text[], $2::text[])
+     ON CONFLICT (code) DO UPDATE SET label = excluded.label`,
+    [overlayData.map((d) => d.code), overlayData.map((d) => d.label)]
+  );
+
   await addCheckConstraintNotValid("consultations", "consultations_height_check", "height_cm BETWEEN 15 AND 250");
 
   // Nuevo rol "enfermera": el médico ahora puede dar de alta UNA cuenta
@@ -650,6 +700,7 @@ export async function initDb() {
   await ensureColumn("patients", "last_blood_pressure", "TEXT");
   await ensureColumn("patients", "last_heart_rate", "INTEGER");
   await ensureColumn("patients", "last_temperature_c", "REAL");
+  await ensureColumn("patients", "last_respiratory_rate", "INTEGER");
   await ensureColumn("patients", "last_weight_kg", "REAL");
   await ensureColumn("patients", "last_height_cm", "REAL");
   await ensureColumn("patients", "vitals_recorded_at", "TEXT");
@@ -672,6 +723,7 @@ export async function initDb() {
   await ensureColumn("appointments", "intake_blood_pressure", "TEXT");
   await ensureColumn("appointments", "intake_heart_rate", "INTEGER");
   await ensureColumn("appointments", "intake_temperature_c", "REAL");
+  await ensureColumn("appointments", "intake_respiratory_rate", "INTEGER");
   await ensureColumn("appointments", "intake_recorded_by", "TEXT");
   await ensureColumn("appointments", "intake_recorded_at", "TEXT");
   // Marca las citas creadas desde la página pública de reservas, para que

@@ -45,7 +45,7 @@ adminRouter.get("/suggest-username", async (req, res) => {
 adminRouter.get("/clinics", async (_req, res) => {
   const rows = await db
     .prepare(
-      `SELECT c.id, c.name, c.created_at, c.status, c.archived_at, c.archived_reason,
+      `SELECT c.id, c.name, c.created_at, c.status, c.archived_at, c.archived_reason, c.max_assistants,
         (SELECT COUNT(*) FROM users u WHERE u.clinic_id = c.id) AS user_count,
         (SELECT COUNT(*) FROM patients p WHERE p.clinic_id = c.id) AS patient_count,
         (SELECT u2.username FROM users u2 WHERE u2.clinic_id = c.id AND u2.role = 'medico' ORDER BY u2.id LIMIT 1) AS doctor_username,
@@ -54,6 +54,32 @@ adminRouter.get("/clinics", async (_req, res) => {
     )
     .all();
   res.json(rows);
+});
+
+// PUT /api/admin/clinics/:id/max-assistants -> CORRECCIÓN 1 solicitada por
+// el usuario: "el superadmin es quien decide cuántos asistentes puede
+// agregar el médico contratante". Antes el límite (1) estaba fijo en el
+// código de users.js; ahora lo decide el superadministrador, clínica por
+// clínica, desde esta ruta.
+adminRouter.put("/clinics/:id/max-assistants", async (req, res) => {
+  const existing = await db.prepare(`SELECT id FROM clinics WHERE id = ?`).get(req.params.id);
+  if (!existing) return res.status(404).json({ error: "Clínica no encontrada" });
+
+  const maxAssistants = Number(req.body.max_assistants);
+  if (!Number.isInteger(maxAssistants) || maxAssistants < 0 || maxAssistants > 20) {
+    return res.status(400).json({ error: "max_assistants debe ser un número entero entre 0 y 20." });
+  }
+
+  await db.prepare(`UPDATE clinics SET max_assistants = ? WHERE id = ?`).run(maxAssistants, req.params.id);
+  await logAudit({
+    clinicId: req.params.id,
+    actor: "admin",
+    action: "update",
+    entity: "clinic",
+    entityId: req.params.id,
+    detail: { reason: "max_assistants", value: maxAssistants },
+  });
+  res.json({ ok: true, max_assistants: maxAssistants });
 });
 
 // POST /api/admin/clinics/:id/reset-password -> genera una contraseña nueva

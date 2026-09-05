@@ -214,7 +214,7 @@ export default function App() {
                 Perfil del médico
               </button>
               <button className="btn-ghost full" onClick={() => setShowUsers(true)}>
-                Gestionar usuarios
+                Mi Equipo
               </button>
               <button className="btn-ghost full" onClick={() => setShowBookingSettings(true)}>
                 Reserva en línea

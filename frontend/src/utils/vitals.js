@@ -4,12 +4,18 @@
 // para poder resaltar en rojo MIENTRAS la enfermera/el médico escribe,
 // sin esperar una ida y vuelta al servidor. Son umbrales generales de
 // adulto — una alerta visual de apoyo, nunca un diagnóstico.
-export function vitalsAlerts({ blood_pressure, heart_rate, temperature_c } = {}) {
+export function vitalsAlerts({ blood_pressure, heart_rate, temperature_c, respiratory_rate } = {}) {
   const alerts = {};
   if (heart_rate !== undefined && heart_rate !== null && heart_rate !== "") {
     const hr = Number(heart_rate);
     if (!Number.isNaN(hr) && (hr < 60 || hr > 100)) {
       alerts.heart_rate = hr < 60 ? "Frecuencia cardiaca baja (bradicardia)" : "Frecuencia cardiaca alta (taquicardia)";
+    }
+  }
+  if (respiratory_rate !== undefined && respiratory_rate !== null && respiratory_rate !== "") {
+    const rr = Number(respiratory_rate);
+    if (!Number.isNaN(rr) && (rr < 12 || rr > 20)) {
+      alerts.respiratory_rate = rr < 12 ? "Frecuencia respiratoria baja (bradipnea)" : "Frecuencia respiratoria alta (taquipnea)";
     }
   }
   if (temperature_c !== undefined && temperature_c !== null && temperature_c !== "") {

@@ -296,3 +296,14 @@ test("vitalsAlerts ignora campos vacíos o no enviados", () => {
   assert.deepEqual(vitalsAlerts({}), []);
   assert.deepEqual(vitalsAlerts({ heart_rate: "", temperature_c: null, blood_pressure: undefined }), []);
 });
+
+// ---------- CORRECCIÓN 4: frecuencia respiratoria (Formulario 002 MSP) ----------
+
+test("vitalsAlerts detecta taquipnea y bradipnea", () => {
+  assert.match(vitalsAlerts({ respiratory_rate: 24 })[0].message, /taquipnea/);
+  assert.match(vitalsAlerts({ respiratory_rate: 8 })[0].message, /bradipnea/);
+});
+
+test("vitalsAlerts no marca nada si la frecuencia respiratoria está en rango normal", () => {
+  assert.deepEqual(vitalsAlerts({ respiratory_rate: 16 }), []);
+});

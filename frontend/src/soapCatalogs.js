@@ -252,3 +252,44 @@ export function describeFollowUpInterval(isoDate, fromDate = new Date()) {
   const years = Math.round(diffDays / 365);
   return `En ${years} año${years === 1 ? "" : "s"}`;
 }
+
+// CORRECCIÓN 4 solicitada por el usuario ("actualizar el SOAP a la
+// historia clínica completa según la normativa ecuatoriana"): bloques 4 y
+// 5 del Formulario 002 (Consulta Externa) del MSP — Acuerdo Ministerial
+// 00115-2021 — que faltaban por completo: antecedentes familiares y
+// revisión actual de órganos y sistemas. Las opciones son las 9
+// categorías que trae el formulario oficial (se omite la de "método de
+// planificación familiar", propia del formulario 003 de hospitalización).
+export const FAMILY_HISTORY_OPTIONS = [
+  "Cardiopatía",
+  "Diabetes",
+  "Enfermedad cardiovascular",
+  "Hipertensión",
+  "Cáncer",
+  "Tuberculosis",
+  "Enfermedad mental",
+  "Enfermedad infecciosa",
+  "Otro antecedente",
+];
+
+// Los "órganos y sistemas" son los mismos 10 que usa el Formulario 002
+// para la revisión por sistemas. Solo se registran los que el paciente
+// SÍ refiere síntomas (con evidencia de patología) — así lo indica el
+// instructivo oficial de llenado.
+export const REVIEW_OF_SYSTEMS_OPTIONS = [
+  "Órganos de los sentidos",
+  "Respiratorio",
+  "Cardiovascular",
+  "Digestivo",
+  "Genital",
+  "Urinario",
+  "Músculo esquelético",
+  "Endocrino",
+  "Hemolinfático",
+  "Nervioso",
+];
+
+export const DIAGNOSIS_CERTAINTY_OPTIONS = [
+  { value: "presuntivo", label: "Presuntivo" },
+  { value: "definitivo", label: "Definitivo" },
+];

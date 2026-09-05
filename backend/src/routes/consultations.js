@@ -41,6 +41,11 @@ function hydrateConsultation(row) {
     treatment_meds: fromJson(row.treatment_meds_json, []),
     studies_lab: fromJson(row.studies_lab_json, []),
     studies_imaging: fromJson(row.studies_imaging_json, []),
+    // CORRECCIÓN 4 solicitada por el usuario ("historia clínica completa
+    // según normativa ecuatoriana"): antecedentes familiares y revisión
+    // de órganos y sistemas, del Formulario 002 del MSP.
+    family_history_conditions: fromJson(row.family_history_conditions_json, []),
+    review_of_systems_affected: fromJson(row.review_of_systems_affected_json, []),
   };
 }
 
@@ -71,14 +76,22 @@ consultationsRouter.post("/consultations", requireRole("medico"), async (req, re
     // O
     blood_pressure,
     heart_rate,
+    respiratory_rate,
     temperature_c,
     weight_kg,
     height_cm,
     physical_exam,
     clinical_findings,
+    // CORRECCIÓN 4 solicitada por el usuario: antecedentes familiares y
+    // revisión de órganos y sistemas (Formulario 002 del MSP, bloques 4 y 5).
+    family_history_conditions,
+    family_history_notes,
+    review_of_systems_affected,
+    review_of_systems_notes,
     // A
     diagnosis_code,
     diagnosis_label,
+    diagnosis_certainty,
     clinical_assessment,
     additional_diagnoses,
     // P
@@ -106,6 +119,12 @@ consultationsRouter.post("/consultations", requireRole("medico"), async (req, re
   // ninguna validación de formato ni de calendario.
   if (follow_up_date && !isValidIsoDate(follow_up_date)) {
     return res.status(400).json({ error: "La fecha de seguimiento no es una fecha calendario válida." });
+  }
+
+  // CORRECCIÓN 4 solicitada por el usuario: el Formulario 002 del MSP
+  // exige clasificar el diagnóstico como "presuntivo" o "definitivo".
+  if (diagnosis_certainty && !["presuntivo", "definitivo"].includes(diagnosis_certainty)) {
+    return res.status(400).json({ error: "diagnosis_certainty debe ser 'presuntivo' o 'definitivo'." });
   }
 
   const patient = await db.prepare(`SELECT id, allergies FROM patients WHERE id = ? AND clinic_id = ?`).get(patient_id, req.user.clinic_id);
@@ -186,12 +205,14 @@ consultationsRouter.post("/consultations", requireRole("medico"), async (req, re
         `INSERT INTO consultations
           (clinic_id, patient_id, appointment_id,
            chief_complaint, present_illness, relevant_history, subjective,
-           blood_pressure, heart_rate, temperature_c, weight_kg, height_cm, bmi,
+           blood_pressure, heart_rate, respiratory_rate, temperature_c, weight_kg, height_cm, bmi,
            physical_exam_json, clinical_findings,
-           diagnosis_code, diagnosis_label, clinical_assessment, additional_diagnoses_json,
+           family_history_conditions_json, family_history_notes,
+           review_of_systems_affected_json, review_of_systems_notes,
+           diagnosis_code, diagnosis_label, diagnosis_certainty, clinical_assessment, additional_diagnoses_json,
            treatment_meds_json, non_pharmacological_treatment, studies_lab_json, studies_imaging_json,
            patient_education, warning_signs, follow_up_interval, follow_up_date, plan)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         req.user.clinic_id,
@@ -203,14 +224,20 @@ consultationsRouter.post("/consultations", requireRole("medico"), async (req, re
         subjective ?? null,
         blood_pressure ?? null,
         heart_rate ?? null,
+        respiratory_rate ?? null,
         temperature_c ?? null,
         weight_kg ?? null,
         height_cm ?? null,
         bmi,
         toJson(physical_exam),
         clinical_findings ?? null,
+        toJson(family_history_conditions),
+        family_history_notes ?? null,
+        toJson(review_of_systems_affected),
+        review_of_systems_notes ?? null,
         diagnosis_code ?? null,
         diagnosis_label ?? null,
+        diagnosis_certainty ?? null,
         clinical_assessment ?? null,
         toJson(additional_diagnoses),
         toJson(treatment_meds),
@@ -331,13 +358,19 @@ consultationsRouter.put("/consultations/:id", requireRole("medico"), async (req,
     subjective,
     blood_pressure,
     heart_rate,
+    respiratory_rate,
     temperature_c,
     weight_kg,
     height_cm,
     physical_exam,
     clinical_findings,
+    family_history_conditions,
+    family_history_notes,
+    review_of_systems_affected,
+    review_of_systems_notes,
     diagnosis_code,
     diagnosis_label,
+    diagnosis_certainty,
     clinical_assessment,
     additional_diagnoses,
     treatment_meds,
@@ -358,6 +391,10 @@ consultationsRouter.put("/consultations/:id", requireRole("medico"), async (req,
     return res.status(400).json({ error: "La fecha de seguimiento no es una fecha calendario válida." });
   }
 
+  if (diagnosis_certainty && !["presuntivo", "definitivo"].includes(diagnosis_certainty)) {
+    return res.status(400).json({ error: "diagnosis_certainty debe ser 'presuntivo' o 'definitivo'." });
+  }
+
   if (Array.isArray(treatment_meds) && treatment_meds.length > 0) {
     const itemsError = validatePrescriptionItems(treatment_meds);
     if (itemsError) return res.status(400).json({ error: itemsError });
@@ -374,13 +411,15 @@ consultationsRouter.put("/consultations/:id", requireRole("medico"), async (req,
         `INSERT INTO consultations
           (clinic_id, patient_id, appointment_id,
            chief_complaint, present_illness, relevant_history, subjective,
-           blood_pressure, heart_rate, temperature_c, weight_kg, height_cm, bmi,
+           blood_pressure, heart_rate, respiratory_rate, temperature_c, weight_kg, height_cm, bmi,
            physical_exam_json, clinical_findings,
-           diagnosis_code, diagnosis_label, clinical_assessment, additional_diagnoses_json,
+           family_history_conditions_json, family_history_notes,
+           review_of_systems_affected_json, review_of_systems_notes,
+           diagnosis_code, diagnosis_label, diagnosis_certainty, clinical_assessment, additional_diagnoses_json,
            treatment_meds_json, non_pharmacological_treatment, studies_lab_json, studies_imaging_json,
            patient_education, warning_signs, follow_up_interval, follow_up_date, plan,
            corrected_from_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         existing.clinic_id,
@@ -392,14 +431,20 @@ consultationsRouter.put("/consultations/:id", requireRole("medico"), async (req,
         subjective ?? null,
         blood_pressure ?? null,
         heart_rate ?? null,
+        respiratory_rate ?? null,
         temperature_c ?? null,
         weight_kg ?? null,
         height_cm ?? null,
         bmi,
         toJson(physical_exam),
         clinical_findings ?? null,
+        toJson(family_history_conditions),
+        family_history_notes ?? null,
+        toJson(review_of_systems_affected),
+        review_of_systems_notes ?? null,
         diagnosis_code ?? null,
         diagnosis_label ?? null,
+        diagnosis_certainty ?? null,
         clinical_assessment ?? null,
         toJson(additional_diagnoses),
         toJson(treatment_meds),

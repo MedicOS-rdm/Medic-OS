@@ -12,6 +12,7 @@ const CLINICAL_FIELDS = [
   "last_blood_pressure",
   "last_heart_rate",
   "last_temperature_c",
+  "last_respiratory_rate",
   "last_weight_kg",
   "last_height_cm",
   "vitals_recorded_at",
@@ -25,7 +26,7 @@ const CLINICAL_FIELDS = [
 // depender de ninguna cita. Se aceptan con los mismos nombres que usa el
 // resto de la app (blood_pressure, heart_rate, etc.) y se guardan en las
 // columnas last_* junto con quién y cuándo los registró.
-const VITAL_INPUT_FIELDS = ["blood_pressure", "heart_rate", "temperature_c", "weight_kg", "height_cm"];
+const VITAL_INPUT_FIELDS = ["blood_pressure", "heart_rate", "temperature_c", "respiratory_rate", "weight_kg", "height_cm"];
 
 // Corrección funcional (nuevo rol "enfermera"): además del médico, la
 // enfermera SÍ debe poder ver y registrar alergias y antecedentes
@@ -189,7 +190,7 @@ patientsRouter.put("/:id", async (req, res) => {
         email = ?, emergency_contact_name = ?, emergency_contact_phone = ?,
         blood_type = ?, allergies = ?, chronic_conditions = ?, notes = ?,
         id_number = ?, address = ?, workplace = ?, job_title = ?, clinical_history_number = ?,
-        last_blood_pressure = ?, last_heart_rate = ?, last_temperature_c = ?,
+        last_blood_pressure = ?, last_heart_rate = ?, last_temperature_c = ?, last_respiratory_rate = ?,
         last_weight_kg = ?, last_height_cm = ?,
         vitals_recorded_by = CASE WHEN ? THEN ? ELSE vitals_recorded_by END,
         vitals_recorded_at = CASE WHEN ? THEN to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS') ELSE vitals_recorded_at END,
@@ -217,6 +218,7 @@ patientsRouter.put("/:id", async (req, res) => {
       hasVitals ? (body.blood_pressure ?? null) : existing.last_blood_pressure,
       hasVitals ? (body.heart_rate || null) : existing.last_heart_rate,
       hasVitals ? (body.temperature_c || null) : existing.last_temperature_c,
+      hasVitals ? (body.respiratory_rate || null) : existing.last_respiratory_rate,
       hasVitals ? (body.weight_kg || null) : existing.last_weight_kg,
       hasVitals ? (body.height_cm || null) : existing.last_height_cm,
       hasVitals,

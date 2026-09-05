@@ -15,17 +15,20 @@ export default function UsersModal({ onClose }) {
   const [resetting, setResetting] = useState(null); // id del usuario al que se le está generando clave
   const [tempPassword, setTempPassword] = useState(null); // { userId, username, password }
   const [copied, setCopied] = useState(false);
+  // CORRECCIÓN 1 solicitada por el usuario: el límite de cuentas de
+  // asistente ya no es fijo (1) — lo decide el superadministrador de la
+  // plataforma por consultorio. Se consulta el límite real en vez de
+  // asumirlo.
+  const [limits, setLimits] = useState({ max_assistants: 1, current_assistants: 0 });
 
-  // Nuevo rol "enfermera": el médico puede dar de alta como máximo UNA
-  // cuenta de asistente por clínica, sea secretaria o enfermera (el
-  // backend rechaza una segunda cuenta con 409 — aquí solo ocultamos el
-  // formulario cuando ya existe, para que quede claro de entrada).
-  const hasAssistant = users.some((u) => u.role === "secretaria" || u.role === "enfermera");
+  const atLimit = limits.current_assistants >= limits.max_assistants;
 
   async function load() {
     setLoading(true);
     try {
-      setUsers(await api.users.list());
+      const [userList, userLimits] = await Promise.all([api.users.list(), api.users.limits()]);
+      setUsers(userList);
+      setLimits(userLimits);
     } finally {
       setLoading(false);
     }
@@ -108,7 +111,7 @@ export default function UsersModal({ onClose }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal folder-card" onClick={(e) => e.stopPropagation()}>
         <div className="modal-tab" style={{ background: "#5B6B5F" }} />
-        <h2 className="modal-title">Usuarios del sistema</h2>
+        <h2 className="modal-title">Mi Equipo</h2>
 
         {loading ? (
           <p className="hint">Cargando…</p>
@@ -157,12 +160,16 @@ export default function UsersModal({ onClose }) {
 
         <h3 className="history-title">Nueva cuenta de asistente</h3>
         <p className="hint" style={{ marginTop: -8, marginBottom: 10 }}>
-          Puedes agregar una sola cuenta de asistente por consultorio: secretaria (agenda y datos generales) o
-          enfermera (agenda, y además puede registrar signos vitales, alergias y antecedentes patológicos).
+          Tu consultorio puede tener hasta {limits.max_assistants} cuenta(s) de asistente ({limits.current_assistants} de{" "}
+          {limits.max_assistants} en uso) — secretaria (agenda y datos generales) o enfermera (agenda, y además puede
+          registrar signos vitales, alergias y antecedentes patológicos). El límite lo define el administrador de la
+          plataforma.
         </p>
-        {hasAssistant ? (
+        {atLimit ? (
           <p className="hint" style={{ background: "#e1eafb", padding: "10px 12px", borderRadius: 8 }}>
-            Ya tienes una cuenta de asistente activa. Elimínala primero si quieres dar de alta una de otro tipo.
+            {limits.max_assistants === 0
+              ? "Tu plataforma no te permite agregar cuentas de asistente."
+              : "Ya alcanzaste el límite de cuentas de asistente. Elimina una para dar de alta otra."}
           </p>
         ) : (
           <form onSubmit={handleCreate} className="form-grid">

@@ -30,6 +30,11 @@ export function isValidIsoDate(value) {
 // atrapar errores de tipeo evidentes, no hacer juicios clínicos.
 export const VITAL_RANGES = {
   heart_rate: { min: 20, max: 300, label: "la frecuencia cardiaca (lpm)" },
+  // CORRECCIÓN 4 solicitada por el usuario ("historia clínica completa
+  // según normativa ecuatoriana"): el Formulario 002 del MSP incluye la
+  // frecuencia respiratoria dentro de "signos vitales y antropometría"
+  // (bloque 6) — antes no se registraba en absoluto.
+  respiratory_rate: { min: 5, max: 100, label: "la frecuencia respiratoria (rpm)" },
   temperature_c: { min: 25, max: 45, label: "la temperatura (°C)" },
   weight_kg: { min: 0.3, max: 400, label: "el peso (kg)" },
   height_cm: { min: 15, max: 250, label: "la talla (cm)" },
@@ -64,12 +69,18 @@ export function computeBmi(weight_kg, height_cm) {
 // umbrales generales de adulto — no ajustan por edad pediátrica ni
 // condición previa del paciente; son una alerta visual de apoyo, nunca un
 // diagnóstico ni un sustituto del criterio clínico del médico.
-export function vitalsAlerts({ blood_pressure, heart_rate, temperature_c } = {}) {
+export function vitalsAlerts({ blood_pressure, heart_rate, temperature_c, respiratory_rate } = {}) {
   const alerts = [];
   if (heart_rate !== undefined && heart_rate !== null && heart_rate !== "") {
     const hr = Number(heart_rate);
     if (!Number.isNaN(hr) && (hr < 60 || hr > 100)) {
       alerts.push({ field: "heart_rate", message: hr < 60 ? "Frecuencia cardiaca baja (bradicardia)" : "Frecuencia cardiaca alta (taquicardia)" });
+    }
+  }
+  if (respiratory_rate !== undefined && respiratory_rate !== null && respiratory_rate !== "") {
+    const rr = Number(respiratory_rate);
+    if (!Number.isNaN(rr) && (rr < 12 || rr > 20)) {
+      alerts.push({ field: "respiratory_rate", message: rr < 12 ? "Frecuencia respiratoria baja (bradipnea)" : "Frecuencia respiratoria alta (taquipnea)" });
     }
   }
   if (temperature_c !== undefined && temperature_c !== null && temperature_c !== "") {

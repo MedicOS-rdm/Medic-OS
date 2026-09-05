@@ -15,6 +15,9 @@ import {
   LAB_STUDIES,
   IMAGING_STUDIES,
   FOLLOW_UP_QUICK_OPTIONS,
+  FAMILY_HISTORY_OPTIONS,
+  REVIEW_OF_SYSTEMS_OPTIONS,
+  DIAGNOSIS_CERTAINTY_OPTIONS,
   defaultPhysicalExam,
   physicalExamToText,
   addDaysToDate,
@@ -27,17 +30,29 @@ const EMPTY_NOTE = {
   present_illness: "",
   relevant_history: "",
   subjective: "",
+  // CORRECCIÓN 4 solicitada por el usuario ("historia clínica completa
+  // según normativa ecuatoriana"): bloque 4 del Formulario 002 del MSP
+  // (Acuerdo Ministerial 00115-2021), antes ausente.
+  family_history_conditions: [],
+  family_history_notes: "",
   // O · Objetivo
   blood_pressure: "120/80",
   heart_rate: "80",
+  respiratory_rate: "18",
   temperature_c: "36.5",
   weight_kg: "",
   height_cm: "",
   physical_exam: defaultPhysicalExam(),
   clinical_findings: "",
+  // Bloque 5 del Formulario 002: revisión actual de órganos y sistemas
+  // (distinta del examen físico — aquí se anota lo que el PACIENTE
+  // refiere, no lo que el médico encuentra al examinar).
+  review_of_systems_affected: [],
+  review_of_systems_notes: "",
   // A · Análisis
   diagnosis_code: "",
   diagnosis_label: "",
+  diagnosis_certainty: "",
   clinical_assessment: "",
   additional_diagnoses: [],
   // P · Plan
@@ -182,15 +197,21 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
       present_illness: c.present_illness || "",
       relevant_history: c.relevant_history || "",
       subjective: c.subjective || "",
+      family_history_conditions: c.family_history_conditions || [],
+      family_history_notes: c.family_history_notes || "",
       blood_pressure: c.blood_pressure || "",
       heart_rate: c.heart_rate ?? "",
+      respiratory_rate: c.respiratory_rate ?? "",
       temperature_c: c.temperature_c ?? "",
       weight_kg: c.weight_kg ?? "",
       height_cm: c.height_cm ?? "",
       physical_exam: c.physical_exam || defaultPhysicalExam(),
       clinical_findings: c.clinical_findings || "",
+      review_of_systems_affected: c.review_of_systems_affected || [],
+      review_of_systems_notes: c.review_of_systems_notes || "",
       diagnosis_code: c.diagnosis_code || "",
       diagnosis_label: c.diagnosis_label || "",
+      diagnosis_certainty: c.diagnosis_certainty || "",
       clinical_assessment: c.clinical_assessment || "",
       additional_diagnoses: c.additional_diagnoses || [],
       treatment_meds: c.treatment_meds || [],
@@ -277,15 +298,21 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
       present_illness: note.present_illness || null,
       relevant_history: note.relevant_history || null,
       subjective: note.subjective || null,
+      family_history_conditions: note.family_history_conditions,
+      family_history_notes: note.family_history_notes || null,
       blood_pressure: note.blood_pressure || null,
       heart_rate: note.heart_rate ? Number(note.heart_rate) : null,
+      respiratory_rate: note.respiratory_rate ? Number(note.respiratory_rate) : null,
       temperature_c: note.temperature_c ? Number(note.temperature_c) : null,
       weight_kg: note.weight_kg ? Number(note.weight_kg) : null,
       height_cm: note.height_cm ? Number(note.height_cm) : null,
       physical_exam: note.physical_exam || null,
       clinical_findings: note.clinical_findings || null,
+      review_of_systems_affected: note.review_of_systems_affected,
+      review_of_systems_notes: note.review_of_systems_notes || null,
       diagnosis_code: note.diagnosis_code || null,
       diagnosis_label: note.diagnosis_label || null,
+      diagnosis_certainty: note.diagnosis_certainty || null,
       clinical_assessment: note.clinical_assessment || null,
       additional_diagnoses: note.additional_diagnoses.filter((d) => d.label),
       treatment_meds: note.treatment_meds,
@@ -659,11 +686,11 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                   />
                 </label>
                 <label>
-                  Antecedentes relevantes
+                  Antecedentes personales
                   <input
                     value={note.relevant_history}
                     onChange={set("relevant_history")}
-                    placeholder="Patológicos, quirúrgicos, familiares, alérgicos…"
+                    placeholder="Patológicos, quirúrgicos, alérgicos…"
                   />
                 </label>
                 <label className="span-2">
@@ -682,6 +709,55 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                     value={note.subjective}
                     onChange={set("subjective")}
                     placeholder="Cualquier otro dato subjetivo que quieras anotar…"
+                  />
+                </label>
+                {/* Bloque 4 del Formulario 002 (MSP, AM 00115-2021):
+                    antecedentes familiares, aparte de los personales. */}
+                <div className="span-2">
+                  <label style={{ marginBottom: 4, display: "block" }}>Antecedentes familiares</label>
+                  <MultiSelectChips
+                    options={FAMILY_HISTORY_OPTIONS}
+                    values={note.family_history_conditions}
+                    onChange={(vals) => setNote((n) => ({ ...n, family_history_conditions: vals }))}
+                    placeholder="Seleccionar antecedente familiar…"
+                  />
+                </div>
+                <label className="span-2">
+                  Detalle de antecedentes familiares
+                  <textarea
+                    rows={2}
+                    value={note.family_history_notes}
+                    onChange={set("family_history_notes")}
+                    placeholder="Ej. Madre con diabetes tipo 2, padre hipertenso…"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* ---------- Revisión de órganos y sistemas ----------
+                Bloque 5 del Formulario 002 (MSP, AM 00115-2021): lo que el
+                paciente REFIERE por sistema (no lo que el médico encuentra
+                al examinar — eso va en "Hallazgos del examen físico" más
+                abajo). El instructivo oficial indica anotar solo los
+                sistemas con síntomas referidos. */}
+            <div className="soap-block">
+              <span className="soap-letter">Revisión de órganos y sistemas</span>
+              <div className="soap-2col">
+                <div className="span-2">
+                  <MultiSelectChips
+                    options={REVIEW_OF_SYSTEMS_OPTIONS}
+                    values={note.review_of_systems_affected}
+                    onChange={(vals) => setNote((n) => ({ ...n, review_of_systems_affected: vals }))}
+                    placeholder="Seleccionar sistema con síntomas referidos…"
+                  />
+                </div>
+                <label className="span-2">
+                  Síntomas referidos por sistema
+                  <textarea
+                    rows={2}
+                    value={note.review_of_systems_notes}
+                    onChange={set("review_of_systems_notes")}
+                    placeholder="Ej. Respiratorio: tos seca de 3 días. Digestivo: náusea ocasional."
                   />
                 </label>
               </div>
@@ -732,6 +808,22 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                     ))}
                   </select>
                   {vitalAlerts.temperature_c && <span className="form-alert">⚠ {vitalAlerts.temperature_c}</span>}
+                </label>
+                <label>
+                  FR (rpm)
+                  <select
+                    value={note.respiratory_rate}
+                    onChange={set("respiratory_rate")}
+                    className={vitalAlerts.respiratory_rate ? "input-alert" : ""}
+                  >
+                    <option value="">Seleccionar…</option>
+                    {numericOptions(8, 60, 1, note.respiratory_rate).map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  {vitalAlerts.respiratory_rate && <span className="form-alert">⚠ {vitalAlerts.respiratory_rate}</span>}
                 </label>
                 <label>
                   Peso (kg)
@@ -787,6 +879,21 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                   label={note.diagnosis_label}
                   onSelect={({ code, label }) => setNote((n) => ({ ...n, diagnosis_code: code, diagnosis_label: label }))}
                 />
+              </label>
+
+              {/* Bloque 8 del Formulario 002 (MSP, AM 00115-2021): todo
+                  diagnóstico debe clasificarse como presuntivo o
+                  definitivo — antes no existía esta distinción. */}
+              <label style={{ marginTop: 8 }}>
+                Tipo de diagnóstico
+                <select value={note.diagnosis_certainty} onChange={set("diagnosis_certainty")}>
+                  <option value="">Seleccionar…</option>
+                  {DIAGNOSIS_CERTAINTY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <div style={{ marginTop: 12 }}>

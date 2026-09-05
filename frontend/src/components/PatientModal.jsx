@@ -23,6 +23,7 @@ const EMPTY = {
   blood_pressure: "",
   heart_rate: "",
   temperature_c: "",
+  respiratory_rate: "",
   weight_kg: "",
   height_cm: "",
 };
@@ -43,6 +44,7 @@ export default function PatientModal({ isMedico = true, canEditClinical = isMedi
           blood_pressure: patient.last_blood_pressure || "",
           heart_rate: patient.last_heart_rate || "",
           temperature_c: patient.last_temperature_c || "",
+          respiratory_rate: patient.last_respiratory_rate || "",
           weight_kg: patient.last_weight_kg || "",
           height_cm: patient.last_height_cm || "",
         }
@@ -218,6 +220,16 @@ export default function PatientModal({ isMedico = true, canEditClinical = isMedi
                   className={alerts.temperature_c ? "input-alert" : ""}
                 />
                 {alerts.temperature_c && <span className="form-alert">⚠ {alerts.temperature_c}</span>}
+              </label>
+              <label>
+                Frecuencia respiratoria (rpm)
+                <input
+                  type="number"
+                  value={form.respiratory_rate || ""}
+                  onChange={set("respiratory_rate")}
+                  className={alerts.respiratory_rate ? "input-alert" : ""}
+                />
+                {alerts.respiratory_rate && <span className="form-alert">⚠ {alerts.respiratory_rate}</span>}
               </label>
               <label>
                 Peso (kg)

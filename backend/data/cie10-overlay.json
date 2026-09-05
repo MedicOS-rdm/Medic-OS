@@ -1,0 +1,30 @@
+[
+  {
+    "code": "A97",
+    "label": "Dengue"
+  },
+  {
+    "code": "A97.0",
+    "label": "Dengue sin signos de alarma"
+  },
+  {
+    "code": "A97.1",
+    "label": "Dengue con signos de alarma"
+  },
+  {
+    "code": "A97.2",
+    "label": "Dengue grave"
+  },
+  {
+    "code": "A97.9",
+    "label": "Dengue, no especificado"
+  },
+  {
+    "code": "A90",
+    "label": "Fiebre del dengue [dengue clásico] (código clásico; para el cuadro clínico actual usar A97.0-A97.2 según signos de alarma)"
+  },
+  {
+    "code": "A91",
+    "label": "Fiebre del dengue hemorrágico (código clásico, en desuso desde la actualización CIE-10 2018; usar A97.1 «Dengue con signos de alarma» o A97.2 «Dengue grave» según corresponda)"
+  }
+]

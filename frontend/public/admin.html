@@ -99,9 +99,15 @@
     <div class="card">
       <strong>Consultorios existentes</strong>
       <table id="clinicsTable">
-        <thead><tr><th>Nombre</th><th>Usuario</th><th>Médico</th><th>Usuarios</th><th>Pacientes</th><th>Creado</th><th colspan="2"></th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Usuario</th><th>Médico</th><th>Usuarios</th><th>Pacientes</th><th>Asistentes permitidos</th><th>Creado</th><th colspan="2"></th></tr></thead>
         <tbody id="clinicsBody"></tbody>
       </table>
+      <!-- CORRECCIÓN 1 solicitada por el usuario: "el superadmin es quien
+           decide cuántos asistentes puede agregar el médico contratante" —
+           antes ese límite (1) estaba fijo en el código del backend. -->
+      <p style="font-size:0.8rem; color:var(--muted); margin-top:8px;">
+        "Asistentes permitidos" es cuántas cuentas de secretaria/enfermera puede dar de alta cada médico en su consultorio (por defecto: 1).
+      </p>
     </div>
   </div>
 
@@ -168,11 +174,15 @@
         </td>
         <td>${c.user_count}</td>
         <td>${c.patient_count}</td>
+        <td>
+          <input type="number" min="0" max="20" value="${c.max_assistants}" id="maxAssist-${c.id}" style="width:56px;" />
+          <button class="secondary" style="margin-left:4px;" onclick="saveMaxAssistants(${c.id})">Guardar</button>
+        </td>
         <td>${new Date(c.created_at.replace(' ', 'T')).toLocaleDateString('es-MX')}</td>
         <td><button class="secondary" onclick="resetPassword(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Restablecer contraseña</button></td>
         <td>${c.status === 'archivado' ? '—' : `<button class="danger" onclick="deleteClinic(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Archivar</button>`}</td>
       </tr>
-    `).join('') || '<tr><td colspan="8">Todavía no hay consultorios.</td></tr>';
+    `).join('') || '<tr><td colspan="9">Todavía no hay consultorios.</td></tr>';
   }
 
   // El nombre del médico solo se puede corregir DESDE AQUÍ — el propio
@@ -296,6 +306,17 @@
         const hint = document.getElementById('usernameHint');
         hint.innerHTML = 'Prueba con: <a href="#" onclick="document.getElementById(\'username\').value=\'' + err.suggestion + '\'; lastSuggested=\'' + err.suggestion + '\'; return false;">' + err.suggestion + '</a>';
       }
+    }
+  }
+
+  async function saveMaxAssistants(id) {
+    const input = document.getElementById('maxAssist-' + id);
+    const value = Number(input.value);
+    try {
+      await api('/clinics/' + id + '/max-assistants', { method: 'PUT', body: JSON.stringify({ max_assistants: value }) });
+      loadClinics();
+    } catch (err) {
+      alert('No se pudo guardar: ' + err.message);
     }
   }
 

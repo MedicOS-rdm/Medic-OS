@@ -186,17 +186,17 @@ appointmentsRouter.put("/:id/intake", requireRole("medico", "enfermera"), async 
   const vitalsError = validateVitals(req.body);
   if (vitalsError) return res.status(400).json({ error: vitalsError });
 
-  const { weight_kg, height_cm, blood_pressure, heart_rate, temperature_c } = req.body;
+  const { weight_kg, height_cm, blood_pressure, heart_rate, temperature_c, respiratory_rate } = req.body;
   await withTransaction(async (tx) => {
     await tx
       .prepare(
         `UPDATE appointments SET
           intake_weight_kg = ?, intake_height_cm = ?, intake_blood_pressure = ?,
-          intake_heart_rate = ?, intake_temperature_c = ?,
+          intake_heart_rate = ?, intake_temperature_c = ?, intake_respiratory_rate = ?,
           intake_recorded_by = ?, intake_recorded_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
          WHERE id = ?`
       )
-      .run(weight_kg ?? null, height_cm ?? null, blood_pressure ?? null, heart_rate ?? null, temperature_c ?? null, req.user.username, req.params.id);
+      .run(weight_kg ?? null, height_cm ?? null, blood_pressure ?? null, heart_rate ?? null, temperature_c ?? null, respiratory_rate ?? null, req.user.username, req.params.id);
     await logAudit({
       clinicId: req.user.clinic_id,
       actor: req.user.username,
