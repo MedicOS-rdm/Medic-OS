@@ -25,7 +25,6 @@ import {
 } from "../soapCatalogs.js";
 
 const EMPTY_NOTE = {
-  // S · Subjetivo
   chief_complaint: "",
   present_illness: "",
   relevant_history: "",
@@ -66,6 +65,24 @@ const EMPTY_NOTE = {
   follow_up_date: "",
   plan: "",
 };
+
+// Corrección solicitada por el usuario: los signos vitales que la
+// enfermera ya registró en el paciente (blood_pressure/heart_rate/etc. en
+// las columnas last_*) no se reflejaban en la nota de evolución nueva. Si
+// el paciente TIENE algún signo vital registrado, se usa ese valor; si no
+// lo tiene, se deja el valor por defecto de siempre (sin tocar nada).
+function prefillVitalsFromPatient(note, patient) {
+  if (!patient) return note;
+  return {
+    ...note,
+    blood_pressure: patient.last_blood_pressure || note.blood_pressure,
+    heart_rate: patient.last_heart_rate != null ? String(patient.last_heart_rate) : note.heart_rate,
+    respiratory_rate: patient.last_respiratory_rate != null ? String(patient.last_respiratory_rate) : note.respiratory_rate,
+    temperature_c: patient.last_temperature_c != null ? String(patient.last_temperature_c) : note.temperature_c,
+    weight_kg: patient.last_weight_kg != null ? String(patient.last_weight_kg) : note.weight_kg,
+    height_cm: patient.last_height_cm != null ? String(patient.last_height_cm) : note.height_cm,
+  };
+}
 
 function computeBmi(weight, height) {
   const w = Number(weight);
@@ -176,6 +193,13 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
       setPrescriptions(rx);
       setCertificates(certs);
       setDoctorReady(Boolean(profile.full_name));
+      // CORRECCIÓN solicitada por el usuario: los signos vitales que la
+      // enfermera ya registró (desde "Editar paciente") no se reflejaban
+      // en la nota de evolución nueva — el médico tenía que volver a
+      // tomarlos o copiarlos a mano. Ahora, si el paciente ya tiene
+      // signos vitales registrados, se precargan solos; si no los tiene,
+      // la nota queda con los valores por defecto de siempre.
+      setNote((prev) => prefillVitalsFromPatient(prev, p));
     } finally {
       setLoading(false);
     }
@@ -229,7 +253,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
 
   function cancelEditNote() {
     setEditingNoteId(null);
-    setNote(EMPTY_NOTE);
+    setNote(prefillVitalsFromPatient(EMPTY_NOTE, patient));
   }
 
   // Anular (antes: "eliminar") — el backend ya no borra estos documentos
@@ -341,7 +365,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
         generatedRxId = created.generated_prescription_id;
         duplicateWarnings = created.duplicate_warnings || [];
       }
-      setNote(EMPTY_NOTE);
+      setNote(prefillVitalsFromPatient(EMPTY_NOTE, patient));
       if (duplicateWarnings.length > 0) {
         const detail = duplicateWarnings.map((d) => `• ${d.generic_name}`).join("\n");
         alert(`⚠️ Hay medicamentos repetidos (duplicidad terapéutica) en el tratamiento:\n\n${detail}`);
@@ -669,7 +693,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
         <section className="record-note folder-card">
           <div className="modal-tab" style={{ background: "#C08A3E" }} />
           <h3 className="modal-title">
-            {editingNoteId ? "Editar nota de evolución (SOAP)" : "Nueva nota de evolución (SOAP)"}
+            {editingNoteId ? "Editar nota de evolución" : "Nota de evolución"}
           </h3>
 
           <form onSubmit={handleSave} className="soap-form">

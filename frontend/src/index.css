@@ -472,6 +472,40 @@ textarea {
   margin: 0;
 }
 
+/* Corrección solicitada por el usuario: antes los signos vitales quedaban
+   al final del formulario de "Editar paciente", debajo de todo lo demás
+   — fáciles de pasar por alto. Ahora van en un recuadro aparte, al lado
+   de los datos generales, siempre visible. */
+.patient-modal-columns {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.patient-modal-col-main {
+  flex: 1.2;
+  min-width: 0;
+}
+
+.patient-modal-col-vitals {
+  flex: 1;
+  min-width: 240px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--accent-soft);
+}
+
+.patient-modal-col-vitals .form-grid {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 640px) {
+  .patient-modal-columns {
+    flex-direction: column;
+  }
+}
+
 /* Corrección funcional: alergias y signos vitales alterados se marcan en
    rojo (mismo color de alerta que el resto de la app: --allergy). */
 .input-alert {

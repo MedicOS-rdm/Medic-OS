@@ -94,162 +94,177 @@ export default function PatientModal({ isMedico = true, canEditClinical = isMedi
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal folder-card" onClick={(e) => e.stopPropagation()}>
+      <div className="modal folder-card" style={{ maxWidth: canEditClinical ? 780 : 480 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-tab" style={{ background: "#0460D3" }} />
         <h2 className="modal-title">{isEdit ? "Editar paciente" : "Nuevo paciente"}</h2>
-        <form onSubmit={handleSubmit} className="form-grid">
-          <label>
-            Nombre*
-            <input value={form.first_name} onChange={set("first_name")} autoFocus />
-          </label>
-          <label>
-            Apellido*
-            <input value={form.last_name} onChange={set("last_name")} />
-          </label>
-          <label>
-            Fecha de nacimiento
-            <input type="date" value={form.birth_date || ""} onChange={set("birth_date")} />
-          </label>
-          <label>
-            Edad
-            <input value={formatAge(form.birth_date) || "—"} disabled placeholder="Se calcula sola" />
-          </label>
-          <label>
-            Género
-            <select value={form.gender || ""} onChange={set("gender")}>
-              <option value="">Seleccionar…</option>
-              <option value="F">Femenino</option>
-              <option value="M">Masculino</option>
-              <option value="Otro">Otro</option>
-            </select>
-          </label>
-          <label>
-            Teléfono
-            <input value={form.phone || ""} onChange={set("phone")} />
-          </label>
-          <label>
-            Correo
-            <input type="email" value={form.email || ""} onChange={set("email")} />
-          </label>
-          <label>
-            Contacto de emergencia
-            <input value={form.emergency_contact_name || ""} onChange={set("emergency_contact_name")} />
-          </label>
-          <label>
-            Teléfono de emergencia
-            <input value={form.emergency_contact_phone || ""} onChange={set("emergency_contact_phone")} />
-          </label>
-          <label>
-            Tipo de sangre
-            <input value={form.blood_type || ""} onChange={set("blood_type")} placeholder="O+" />
-          </label>
-          <label>
-            Número de cédula
-            <input value={form.id_number || ""} onChange={set("id_number")} />
-          </label>
-          <label className="span-2">
-            Dirección domiciliaria
-            <input value={form.address || ""} onChange={set("address")} />
-          </label>
-          <label>
-            Institución o empresa
-            <input value={form.workplace || ""} onChange={set("workplace")} />
-          </label>
-          <label>
-            Puesto de trabajo
-            <input value={form.job_title || ""} onChange={set("job_title")} />
-          </label>
-          <label>
-            Número de historia clínica
-            <input
-              value={form.clinical_history_number || ""}
-              onChange={set("clinical_history_number")}
-              placeholder={isEdit ? "" : historyPlaceholder ? `Se asignará ${historyPlaceholder} si lo dejas vacío` : ""}
-            />
-          </label>
-          {canEditClinical && (
-            <>
+        <form onSubmit={handleSubmit}>
+          {/* Corrección solicitada por el usuario: antes los signos
+              vitales quedaban al final del formulario, debajo de todos
+              los datos generales — la enfermera podía pasarlos por alto
+              sin darse cuenta. Ahora, cuando quien edita puede registrar
+              datos clínicos (médico/enfermera), el modal se ensancha y
+              los signos vitales (junto con alergias/antecedentes) van en
+              un recuadro aparte, bien visible, al lado de los datos
+              generales — no al final ni escondidos tras un scroll. */}
+          <div className={canEditClinical ? "patient-modal-columns" : ""}>
+            <div className={canEditClinical ? "patient-modal-col-main form-grid" : "form-grid"}>
+              <label>
+                Nombre*
+                <input value={form.first_name} onChange={set("first_name")} autoFocus />
+              </label>
+              <label>
+                Apellido*
+                <input value={form.last_name} onChange={set("last_name")} />
+              </label>
+              <label>
+                Fecha de nacimiento
+                <input type="date" value={form.birth_date || ""} onChange={set("birth_date")} />
+              </label>
+              <label>
+                Edad
+                <input value={formatAge(form.birth_date) || "—"} disabled placeholder="Se calcula sola" />
+              </label>
+              <label>
+                Género
+                <select value={form.gender || ""} onChange={set("gender")}>
+                  <option value="">Seleccionar…</option>
+                  <option value="F">Femenino</option>
+                  <option value="M">Masculino</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </label>
+              <label>
+                Teléfono
+                <input value={form.phone || ""} onChange={set("phone")} />
+              </label>
+              <label>
+                Correo
+                <input type="email" value={form.email || ""} onChange={set("email")} />
+              </label>
+              <label>
+                Contacto de emergencia
+                <input value={form.emergency_contact_name || ""} onChange={set("emergency_contact_name")} />
+              </label>
+              <label>
+                Teléfono de emergencia
+                <input value={form.emergency_contact_phone || ""} onChange={set("emergency_contact_phone")} />
+              </label>
+              <label>
+                Tipo de sangre
+                <input value={form.blood_type || ""} onChange={set("blood_type")} placeholder="O+" />
+              </label>
+              <label>
+                Número de cédula
+                <input value={form.id_number || ""} onChange={set("id_number")} />
+              </label>
               <label className="span-2">
-                Alergias
+                Dirección domiciliaria
+                <input value={form.address || ""} onChange={set("address")} />
+              </label>
+              <label>
+                Institución o empresa
+                <input value={form.workplace || ""} onChange={set("workplace")} />
+              </label>
+              <label>
+                Puesto de trabajo
+                <input value={form.job_title || ""} onChange={set("job_title")} />
+              </label>
+              <label>
+                Número de historia clínica
                 <input
-                  value={form.allergies || ""}
-                  onChange={set("allergies")}
-                  placeholder="Ej. Penicilina — se mostrará como alerta roja"
-                  className={form.allergies ? "input-alert" : ""}
+                  value={form.clinical_history_number || ""}
+                  onChange={set("clinical_history_number")}
+                  placeholder={isEdit ? "" : historyPlaceholder ? `Se asignará ${historyPlaceholder} si lo dejas vacío` : ""}
                 />
               </label>
-              {form.allergies && <p className="form-alert span-2">⚠ Alergia registrada: {form.allergies}</p>}
-              <label className="span-2">
-                Enfermedades crónicas / antecedentes patológicos importantes
-                <textarea rows={2} value={form.chronic_conditions || ""} onChange={set("chronic_conditions")} />
-              </label>
+            </div>
 
-              {/* Corrección funcional (rol "enfermera"): signos vitales
-                  editables desde aquí, sin depender de que exista una
-                  cita — con resaltado en rojo si el valor está alterado. */}
-              <div className="span-2">
-                <h3 className="history-title">Signos vitales</h3>
+            {canEditClinical && (
+              <div className="patient-modal-col-vitals">
+                <h3 className="history-title" style={{ marginTop: 0 }}>
+                  Signos vitales
+                </h3>
+                <div className="form-grid">
+                  <label>
+                    Presión arterial
+                    <input
+                      value={form.blood_pressure || ""}
+                      onChange={set("blood_pressure")}
+                      placeholder="120/80"
+                      className={alerts.blood_pressure ? "input-alert" : ""}
+                    />
+                    {alerts.blood_pressure && <span className="form-alert">⚠ {alerts.blood_pressure}</span>}
+                  </label>
+                  <label>
+                    Frecuencia cardíaca (lpm)
+                    <input
+                      type="number"
+                      value={form.heart_rate || ""}
+                      onChange={set("heart_rate")}
+                      className={alerts.heart_rate ? "input-alert" : ""}
+                    />
+                    {alerts.heart_rate && <span className="form-alert">⚠ {alerts.heart_rate}</span>}
+                  </label>
+                  <label>
+                    Temperatura (°C)
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={form.temperature_c || ""}
+                      onChange={set("temperature_c")}
+                      className={alerts.temperature_c ? "input-alert" : ""}
+                    />
+                    {alerts.temperature_c && <span className="form-alert">⚠ {alerts.temperature_c}</span>}
+                  </label>
+                  <label>
+                    Frecuencia respiratoria (rpm)
+                    <input
+                      type="number"
+                      value={form.respiratory_rate || ""}
+                      onChange={set("respiratory_rate")}
+                      className={alerts.respiratory_rate ? "input-alert" : ""}
+                    />
+                    {alerts.respiratory_rate && <span className="form-alert">⚠ {alerts.respiratory_rate}</span>}
+                  </label>
+                  <label>
+                    Peso (kg)
+                    <input type="number" step="0.1" value={form.weight_kg || ""} onChange={set("weight_kg")} />
+                  </label>
+                  <label>
+                    Talla (cm)
+                    <input type="number" step="0.1" value={form.height_cm || ""} onChange={set("height_cm")} />
+                  </label>
+                </div>
+                {patient?.vitals_recorded_at && (
+                  <p className="hint">
+                    Últimos signos registrados el {patient.vitals_recorded_at} por {patient.vitals_recorded_by || "—"}.
+                  </p>
+                )}
+
+                <h3 className="history-title">Alergias y antecedentes</h3>
+                <div className="form-grid">
+                  <label>
+                    Alergias
+                    <input
+                      value={form.allergies || ""}
+                      onChange={set("allergies")}
+                      placeholder="Ej. Penicilina — se mostrará como alerta roja"
+                      className={form.allergies ? "input-alert" : ""}
+                    />
+                  </label>
+                  {form.allergies && <p className="form-alert">⚠ Alergia registrada: {form.allergies}</p>}
+                  <label>
+                    Enfermedades crónicas / antecedentes patológicos importantes
+                    <textarea rows={2} value={form.chronic_conditions || ""} onChange={set("chronic_conditions")} />
+                  </label>
+                </div>
               </div>
-              <label>
-                Presión arterial
-                <input
-                  value={form.blood_pressure || ""}
-                  onChange={set("blood_pressure")}
-                  placeholder="120/80"
-                  className={alerts.blood_pressure ? "input-alert" : ""}
-                />
-                {alerts.blood_pressure && <span className="form-alert">⚠ {alerts.blood_pressure}</span>}
-              </label>
-              <label>
-                Frecuencia cardíaca (lpm)
-                <input
-                  type="number"
-                  value={form.heart_rate || ""}
-                  onChange={set("heart_rate")}
-                  className={alerts.heart_rate ? "input-alert" : ""}
-                />
-                {alerts.heart_rate && <span className="form-alert">⚠ {alerts.heart_rate}</span>}
-              </label>
-              <label>
-                Temperatura (°C)
-                <input
-                  type="number"
-                  step="0.1"
-                  value={form.temperature_c || ""}
-                  onChange={set("temperature_c")}
-                  className={alerts.temperature_c ? "input-alert" : ""}
-                />
-                {alerts.temperature_c && <span className="form-alert">⚠ {alerts.temperature_c}</span>}
-              </label>
-              <label>
-                Frecuencia respiratoria (rpm)
-                <input
-                  type="number"
-                  value={form.respiratory_rate || ""}
-                  onChange={set("respiratory_rate")}
-                  className={alerts.respiratory_rate ? "input-alert" : ""}
-                />
-                {alerts.respiratory_rate && <span className="form-alert">⚠ {alerts.respiratory_rate}</span>}
-              </label>
-              <label>
-                Peso (kg)
-                <input type="number" step="0.1" value={form.weight_kg || ""} onChange={set("weight_kg")} />
-              </label>
-              <label>
-                Talla (cm)
-                <input type="number" step="0.1" value={form.height_cm || ""} onChange={set("height_cm")} />
-              </label>
-              {patient?.vitals_recorded_at && (
-                <p className="hint span-2">
-                  Últimos signos registrados el {patient.vitals_recorded_at} por {patient.vitals_recorded_by || "—"}.
-                </p>
-              )}
-            </>
-          )}
+            )}
+          </div>
 
-          {error && <p className="form-error span-2">{error}</p>}
+          {error && <p className="form-error">{error}</p>}
 
-          <div className="modal-actions span-2">
+          <div className="modal-actions">
             <button type="button" className="btn-ghost" onClick={onClose}>
               Cancelar
             </button>
