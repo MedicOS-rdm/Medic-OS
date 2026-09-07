@@ -395,7 +395,13 @@ textarea {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* Corrección: minmax(0, 1fr) en vez de 1fr a secas — sin esto, una
+     columna del grid nunca se encoge por debajo del ancho de su
+     contenido, así que al anidar este grid dentro de un contenedor más
+     angosto (ej. el recuadro de "Editar paciente" con signos vitales al
+     lado), los campos se desbordaban y terminaban superpuestos sobre la
+     columna vecina. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -472,24 +478,110 @@ textarea {
   margin: 0;
 }
 
+/* Corrección solicitada por el usuario: "el recuadro de reservas en línea
+   no lo veo ordenado o profesional" — cada día pasa de ser texto suelto
+   a una fila con estructura fija (checkbox+día | horarios | acciones),
+   alineada en columnas y con una tarjeta suave cuando está activo. */
+.booking-enable-row {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.booking-slot-duration {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  max-width: 220px;
+  margin: 14px 0 18px;
+}
+
+.booking-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.booking-day-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.booking-day-row.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.booking-day-label {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.booking-day-closed {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.booking-day-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.booking-range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.booking-range-row input[type="time"] {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.booking-range-sep {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+.booking-add-range {
+  font-size: 0.78rem;
+}
+
+@media (max-width: 520px) {
+  .booking-day-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Corrección solicitada por el usuario: antes los signos vitales quedaban
    al final del formulario de "Editar paciente", debajo de todo lo demás
    — fáciles de pasar por alto. Ahora van en un recuadro aparte, al lado
    de los datos generales, siempre visible. */
 .patient-modal-columns {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   gap: 20px;
-  align-items: flex-start;
+  align-items: start;
 }
 
 .patient-modal-col-main {
-  flex: 1.2;
   min-width: 0;
 }
 
 .patient-modal-col-vitals {
-  flex: 1;
-  min-width: 240px;
+  min-width: 0;
   border: 1px solid var(--accent);
   border-radius: 10px;
   padding: 14px 16px;
@@ -502,7 +594,7 @@ textarea {
 
 @media (max-width: 640px) {
   .patient-modal-columns {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 }
 

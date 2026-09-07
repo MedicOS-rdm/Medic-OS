@@ -71,7 +71,7 @@ export default function DoctorProfileModal({ onClose, onSaved }) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal folder-card" onClick={(e) => e.stopPropagation()}>
+      <div className="modal folder-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
         <div className="modal-tab" style={{ background: "#0460D3" }} />
         <h2 className="modal-title">Perfil del médico</h2>
         <p className="hint" style={{ marginTop: -8, marginBottom: 14 }}>

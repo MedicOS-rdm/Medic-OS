@@ -30,7 +30,11 @@ export default function MultiSelectChips({ options, values, onChange, placeholde
   return (
     <div>
       <div style={{ display: "flex", gap: 8 }}>
-        <select value={pending} onChange={(e) => setPending(e.target.value)} style={{ flex: 1 }}>
+        {/* Corrección solicitada por el usuario: el botón "Agregar" se
+            salía del recuadro — faltaba minWidth:0 en el <select>, cuyo
+            ancho de contenido (nombres largos de estudios) no le dejaba
+            encogerse dentro de una columna angosta. */}
+        <select value={pending} onChange={(e) => setPending(e.target.value)} style={{ flex: 1, minWidth: 0 }}>
           <option value="">{placeholder}</option>
           {options.map((opt) => (
             <option key={opt} value={opt}>
@@ -44,10 +48,10 @@ export default function MultiSelectChips({ options, values, onChange, placeholde
             value={customText}
             onChange={(e) => setCustomText(e.target.value)}
             placeholder="Escribir estudio…"
-            style={{ flex: 1 }}
+            style={{ flex: 1, minWidth: 0 }}
           />
         )}
-        <button type="button" className="btn-ghost sm" onClick={handleAddClick} disabled={!pending}>
+        <button type="button" className="btn-ghost sm" onClick={handleAddClick} disabled={!pending} style={{ flexShrink: 0 }}>
           Agregar
         </button>
       </div>

@@ -93,25 +93,25 @@ export default function BookingSettingsModal({ onClose }) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal folder-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+      <div className="modal folder-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620 }}>
         <div className="modal-tab" style={{ background: "#0460D3" }} />
         <h2 className="modal-title">Reserva de citas en línea</h2>
         {loading ? (
           <p className="hint">Cargando…</p>
         ) : (
-          <form onSubmit={handleSave} className="form-grid">
-            <label className="span-2 checkbox-row">
+          <form onSubmit={handleSave}>
+            <label className="checkbox-row booking-enable-row">
               <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
               Activar la página pública de reservas para mis pacientes
             </label>
 
             {enabled && (
-              <p className="hint span-2">
+              <p className="hint" style={{ marginTop: 4 }}>
                 Comparte este enlace con tus pacientes: <strong>{publicUrl}</strong>
               </p>
             )}
 
-            <label>
+            <label className="booking-slot-duration">
               Duración de cada turno (minutos)
               <input
                 type="number"
@@ -122,44 +122,59 @@ export default function BookingSettingsModal({ onClose }) {
               />
             </label>
 
-            <div className="span-2">
-              <h3 className="history-title">Horario de atención</h3>
+            <h3 className="history-title" style={{ marginBottom: 6 }}>
+              Horario de atención
+            </h3>
+            {/* Corrección solicitada por el usuario: el listado de días se
+                veía como texto suelto, sin orden claro — ahora cada día es
+                una fila con su propia tarjeta, alineada en columnas fijas
+                (día · horarios · acciones), y se resalta suavemente cuando
+                está activo, para que el médico elija su horario de forma
+                más clara y profesional. */}
+            <div className="booking-day-list">
               {DAYS.map(({ key, label }) => {
                 const ranges = schedule[key] || [];
                 const active = ranges.length > 0;
                 return (
-                  <div key={key} style={{ marginBottom: 8 }}>
-                    <label className="checkbox-row">
+                  <div key={key} className={`booking-day-row${active ? " active" : ""}`}>
+                    <label className="checkbox-row booking-day-label">
                       <input type="checkbox" checked={active} onChange={(e) => toggleDay(key, e.target.checked)} />
                       {label}
                     </label>
-                    {active &&
-                      ranges.map((range, idx) => (
-                        <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", marginLeft: 24, marginTop: 4 }}>
-                          <input type="time" value={range[0]} onChange={(e) => updateRange(key, idx, 0, e.target.value)} />
-                          <span>a</span>
-                          <input type="time" value={range[1]} onChange={(e) => updateRange(key, idx, 1, e.target.value)} />
-                          {ranges.length > 1 && (
-                            <button type="button" className="link-btn link-btn-danger" onClick={() => removeRange(key, idx)}>
-                              Quitar
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    {active && (
-                      <button type="button" className="link-btn" style={{ marginLeft: 24 }} onClick={() => addRange(key)}>
-                        + Agregar otro rango (ej. jornada de tarde)
-                      </button>
+                    {active ? (
+                      <div className="booking-day-ranges">
+                        {ranges.map((range, idx) => (
+                          <div key={idx} className="booking-range-row">
+                            <input type="time" value={range[0]} onChange={(e) => updateRange(key, idx, 0, e.target.value)} />
+                            <span className="booking-range-sep">a</span>
+                            <input type="time" value={range[1]} onChange={(e) => updateRange(key, idx, 1, e.target.value)} />
+                            {ranges.length > 1 && (
+                              <button type="button" className="link-btn link-btn-danger" onClick={() => removeRange(key, idx)}>
+                                Quitar
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <button type="button" className="link-btn booking-add-range" onClick={() => addRange(key)}>
+                          + Agregar jornada de tarde
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="booking-day-closed">Cerrado</span>
                     )}
                   </div>
                 );
               })}
             </div>
 
-            {error && <p className="form-error span-2">{error}</p>}
-            {saved && <p className="hint span-2" style={{ color: "var(--accent)" }}>✓ Guardado.</p>}
+            {error && <p className="form-error" style={{ marginTop: 12 }}>{error}</p>}
+            {saved && (
+              <p className="hint" style={{ color: "var(--accent)", marginTop: 12 }}>
+                ✓ Guardado.
+              </p>
+            )}
 
-            <div className="modal-actions span-2">
+            <div className="modal-actions">
               <button type="button" className="btn-ghost" onClick={onClose}>
                 Cerrar
               </button>
