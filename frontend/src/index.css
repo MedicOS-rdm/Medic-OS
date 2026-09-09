@@ -48,6 +48,18 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  /* Corrección solicitada por el usuario: el panel del médico (Perfil,
+     Mi Equipo, Reserva en línea, etc.) quedaba muy abajo cuando la
+     historia clínica del paciente era extensa, porque el sidebar crecía
+     junto con el contenido principal en una sola página larga. Ahora el
+     sidebar queda fijo dentro del alto de la pantalla y se desplaza por
+     su cuenta si su propio contenido (lista de pacientes) es larga — sin
+     importar qué tan larga sea la historia clínica que se muestre al lado.
+  */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .brand {
@@ -636,6 +648,13 @@ textarea {
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--line);
+    /* En una sola columna (sidebar arriba, contenido abajo) no tiene
+       sentido fijar el sidebar a la altura de la pantalla — eso lo
+       recortaría. El fix de scroll independiente es solo para el layout
+       de escritorio de dos columnas. */
+    position: static;
+    height: auto;
+    overflow-y: visible;
   }
   .main {
     padding: 20px;

@@ -14,7 +14,7 @@
   }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font-family: system-ui, sans-serif; padding: 32px 16px; }
-  .wrap { max-width: 640px; margin: 0 auto; }
+  .wrap { max-width: 900px; margin: 0 auto; }
   h1 { font-size: 1.3rem; margin-bottom: 4px; }
   h1 .medic { color: var(--ink); }
   h1 .os { color: var(--accent); }
@@ -47,20 +47,29 @@
 </head>
 <body>
 <div class="wrap">
-  <h1><img src="/assets/logo.png" alt="MedicOs" style="width:32px;height:32px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:8px;" /><span class="medic">Medic</span><span class="os">Os</span> · Administración</h1>
-  <div class="sub">Esta página es solo para ti (el dueño de la plataforma). Aquí das de alta un consultorio nuevo con su primera cuenta de médico.</div>
+  <!-- Corrección solicitada por el usuario: logo grande y centrado, con
+       el nombre de la app debajo (en vez de logo pequeño + título en una
+       sola línea a la izquierda). -->
+  <div style="text-align:center; margin-bottom: 8px;">
+    <img src="/assets/logo.png" alt="MedicOs" style="width:96px;height:96px;border-radius:50%;object-fit:cover;" />
+    <h1 style="margin: 12px 0 0; font-size: 1.6rem;"><span class="medic">Medic</span><span class="os">Os</span></h1>
+  </div>
+  <div class="sub" style="text-align:center;">Bienvenido RonnDu</div>
 
-  <div class="card" id="gateCard">
+  <div class="card" id="gateCard" style="max-width:480px; margin-left:auto; margin-right:auto;">
     <label for="secret">Clave de administrador</label>
     <div class="gate">
-      <input id="secret" type="password" placeholder="La misma que pusiste en ADMIN_SECRET" />
+      <input id="secret" type="password" />
       <button onclick="unlock()">Entrar</button>
     </div>
     <div id="gateMsg"></div>
   </div>
 
   <div id="mainArea" class="hidden">
-    <div class="card">
+    <!-- max-width aquí (no en .card en general) para que este formulario
+         no quede con campos exageradamente anchos ahora que .wrap se
+         ensanchó para que la tabla de abajo quepa mejor. -->
+    <div class="card" style="max-width:480px;">
       <strong>Crear consultorio nuevo</strong>
       <label for="clinicName">Nombre del consultorio</label>
       <input id="clinicName" placeholder="Consultorio Dr. García" />
@@ -98,10 +107,17 @@
 
     <div class="card">
       <strong>Consultorios existentes</strong>
-      <table id="clinicsTable">
-        <thead><tr><th>Nombre</th><th>Usuario</th><th>Médico</th><th>Usuarios</th><th>Pacientes</th><th>Asistentes permitidos</th><th>Creado</th><th colspan="2"></th></tr></thead>
-        <tbody id="clinicsBody"></tbody>
-      </table>
+      <!-- Corrección solicitada por el usuario: la tabla tiene más
+           columnas (incluidos los botones de acción) de las que caben en
+           el ancho de la tarjeta, y antes se desbordaba visualmente fuera
+           del recuadro. Ahora, si no cabe, aparece un scroll horizontal
+           propio DENTRO de la tarjeta en vez de romper el diseño. -->
+      <div style="overflow-x: auto;">
+        <table id="clinicsTable">
+          <thead><tr><th>Nombre</th><th>Usuario</th><th>Médico</th><th>Usuarios</th><th>Pacientes</th><th>Asistentes permitidos</th><th>Creado</th><th colspan="2"></th></tr></thead>
+          <tbody id="clinicsBody"></tbody>
+        </table>
+      </div>
       <!-- CORRECCIÓN 1 solicitada por el usuario: "el superadmin es quien
            decide cuántos asistentes puede agregar el médico contratante" —
            antes ese límite (1) estaba fijo en el código del backend. -->
