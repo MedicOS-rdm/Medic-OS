@@ -625,6 +625,17 @@ textarea {
   display: block;
 }
 
+/* Aviso junto al botón "Insertar plantilla" del examen físico: la
+   plantilla es solo un punto de partida, nunca hallazgos confirmados. */
+.template-warning {
+  background: #fff8e1;
+  border: 1px solid #f0d97a;
+  color: #7a5b00;
+  font-size: 0.8rem;
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

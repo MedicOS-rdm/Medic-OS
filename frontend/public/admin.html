@@ -19,7 +19,7 @@
   h1 .medic { color: var(--ink); }
   h1 .os { color: var(--accent); }
   .sub { color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 24px; }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(20,38,66,0.06); }
   label { display:block; font-size: 0.8rem; color: var(--ink-soft); margin-top: 12px; margin-bottom: 4px; }
   input, select { width:100%; padding: 9px 10px; border:1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); font-size: 0.95rem; }
   button { margin-top: 16px; background: var(--accent); color: var(--surface); border:none; padding: 10px 16px; border-radius: 8px; cursor:pointer; font-weight:600; }
@@ -28,7 +28,7 @@
   .msg { margin-top: 12px; padding: 10px; border-radius: 7px; font-size: 0.85rem; white-space: pre-wrap; }
   .msg.ok { background: var(--accent-soft); color: var(--accent); }
   .msg.error { background: #fbe9e7; color: var(--danger); }
-  table { width:100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
+  table { width:100%; min-width: 760px; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
   th, td { text-align:left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
   th { color: var(--ink-soft); font-weight:600; }
   .gate { display:flex; gap:8px; }
@@ -43,33 +43,65 @@
   .pw-copy-btn { background: var(--accent); color:#fff; border:none; border-radius:7px; padding:10px 14px; cursor:pointer; font-weight:600; font-size:0.85rem; white-space:nowrap; }
   .pw-copy-btn.copied { background:#2e7d32; }
   .pw-close-btn { margin-top:16px; background:transparent; border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:8px 14px; cursor:pointer; font-weight:600; width:100%; }
+
+  /* Corrección 1 y 2 solicitadas por el usuario: barra superior fija con
+     el logo y el botón "Cerrar sesión" siempre visibles (antes no
+     existía forma de cerrar sesión, y al hacer scroll para ver la tabla
+     de consultorios el resto de la página perdía orden visual). */
+  .topbar { position: sticky; top: 0; z-index: 20; background: var(--bg); display:flex; align-items:center; justify-content:space-between; gap:12px; padding: 8px 0 16px; margin-bottom: 8px; }
+  .topbar-brand { display:flex; align-items:center; gap:10px; }
+  .topbar-brand img { width:40px; height:40px; border-radius:50%; object-fit:cover; }
+  .topbar-brand span.name { font-size: 1.05rem; font-weight:700; }
+  .topbar-brand .medic { color: var(--ink); }
+  .topbar-brand .os { color: var(--accent); }
+  button.logout-btn { margin-top:0; background: transparent; color: var(--danger); border: 1px solid var(--line); }
+
+  /* Corrección 3 solicitada por el usuario: mostrar/ocultar la clave de
+     administrador al escribirla. */
+  .pw-field { position:relative; flex:1; }
+  .pw-field input { width:100%; padding-right: 40px; }
+  .pw-toggle { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:transparent; border:none; margin:0; padding:4px 6px; color: var(--ink-soft); font-size:0.75rem; font-weight:600; cursor:pointer; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <!-- Corrección solicitada por el usuario: logo grande y centrado, con
-       el nombre de la app debajo (en vez de logo pequeño + título en una
-       sola línea a la izquierda). -->
-  <div style="text-align:center; margin-bottom: 8px;">
+  <!-- Pantalla de acceso: logo grande y centrado, con el nombre de la
+       app debajo. Solo se ve mientras no se ha ingresado la clave. -->
+  <div id="gateHeader" style="text-align:center; margin-bottom: 8px;">
     <img src="/assets/logo.png" alt="MedicOs" style="width:96px;height:96px;border-radius:50%;object-fit:cover;" />
     <h1 style="margin: 12px 0 0; font-size: 1.6rem;"><span class="medic">Medic</span><span class="os">Os</span></h1>
   </div>
-  <div class="sub" style="text-align:center;">Bienvenido RonnDu</div>
+  <div id="gateSub" class="sub" style="text-align:center;">Bienvenido RonnDu</div>
 
   <div class="card" id="gateCard" style="max-width:480px; margin-left:auto; margin-right:auto;">
     <label for="secret">Clave de administrador</label>
     <div class="gate">
-      <input id="secret" type="password" />
+      <div class="pw-field">
+        <input id="secret" type="password" onkeydown="if(event.key==='Enter') unlock()" />
+        <button type="button" class="pw-toggle" onclick="toggleSecretVisibility()" id="pwToggleBtn">Mostrar</button>
+      </div>
       <button onclick="unlock()">Entrar</button>
     </div>
     <div id="gateMsg"></div>
   </div>
 
+  <!-- Corrección solicitada por el usuario: barra fija con el logo y un
+       botón para cerrar sesión (antes no existía forma de salir). -->
   <div id="mainArea" class="hidden">
+    <div class="topbar">
+      <div class="topbar-brand">
+        <img src="/assets/logo.png" alt="MedicOs" />
+        <span class="name"><span class="medic">Medic</span><span class="os">Os</span> · Administración</span>
+      </div>
+      <button type="button" class="logout-btn" onclick="logout()">Cerrar sesión</button>
+    </div>
     <!-- max-width aquí (no en .card en general) para que este formulario
          no quede con campos exageradamente anchos ahora que .wrap se
          ensanchó para que la tabla de abajo quepa mejor. -->
-    <div class="card" style="max-width:480px;">
+    <!-- Corrección solicitada por el usuario: esta tarjeta quedaba pegada
+         a la izquierda mientras la de "Consultorios existentes" ocupa
+         todo el ancho — ahora ambas quedan centradas de forma consistente. -->
+    <div class="card" style="max-width:480px; margin-left:auto; margin-right:auto;">
       <strong>Crear consultorio nuevo</strong>
       <label for="clinicName">Nombre del consultorio</label>
       <input id="clinicName" placeholder="Consultorio Dr. García" />
@@ -169,12 +201,38 @@
     try {
       await api('/clinics');
       sessionStorage.setItem('medicos_admin_secret', SECRET);
+      document.getElementById('gateHeader').classList.add('hidden');
+      document.getElementById('gateSub').classList.add('hidden');
       document.getElementById('gateCard').classList.add('hidden');
       document.getElementById('mainArea').classList.remove('hidden');
       loadClinics();
     } catch (err) {
       showMsg('gateMsg', err.message, false);
     }
+  }
+
+  // Corrección solicitada por el usuario: antes no había forma de cerrar
+  // sesión del panel de administrador una vez ingresada la clave.
+  function logout() {
+    SECRET = '';
+    sessionStorage.removeItem('medicos_admin_secret');
+    document.getElementById('secret').value = '';
+    document.getElementById('gateMsg').textContent = '';
+    document.getElementById('gateMsg').className = 'msg';
+    document.getElementById('mainArea').classList.add('hidden');
+    document.getElementById('gateHeader').classList.remove('hidden');
+    document.getElementById('gateSub').classList.remove('hidden');
+    document.getElementById('gateCard').classList.remove('hidden');
+  }
+
+  // Corrección solicitada por el usuario: mostrar/ocultar la clave de
+  // administrador mientras se escribe.
+  function toggleSecretVisibility() {
+    const input = document.getElementById('secret');
+    const btn = document.getElementById('pwToggleBtn');
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    btn.textContent = showing ? 'Mostrar' : 'Ocultar';
   }
 
   async function loadClinics() {

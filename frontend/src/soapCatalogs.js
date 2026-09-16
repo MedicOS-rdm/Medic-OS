@@ -111,6 +111,22 @@ export function physicalExamToText(exam) {
     .join(" · ");
 }
 
+// Igual que physicalExamToText, pero una línea por hallazgo (con el
+// nombre completo de cada campo, no la abreviatura) — pensado para
+// "insertar" como punto de partida editable en un textarea libre,
+// donde el médico luego agrega hallazgos que no están en los <select>
+// (p. ej. "Piel: palidez generalizada", "Abdomen: Mc Burney positivo").
+export function physicalExamToMultilineText(exam) {
+  if (!exam) return "";
+  return PHYSICAL_EXAM_TEMPLATE.map((row) => {
+    const value = exam[row.key];
+    if (!value) return null;
+    return `${row.label}: ${value}`;
+  })
+    .filter(Boolean)
+    .join("\n");
+}
+
 // ---------- P · Estudios ----------
 export const LAB_STUDIES = [
   "Biometría hemática",

@@ -20,6 +20,7 @@ import {
   DIAGNOSIS_CERTAINTY_OPTIONS,
   defaultPhysicalExam,
   physicalExamToText,
+  physicalExamToMultilineText,
   addDaysToDate,
   describeFollowUpInterval,
 } from "../soapCatalogs.js";
@@ -882,13 +883,39 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                 <PhysicalExamGrid exam={note.physical_exam} onChange={(exam) => setNote((n) => ({ ...n, physical_exam: exam }))} />
               </div>
 
+              {/* CORRECCIÓN solicitada por el usuario: la plantilla de
+                  arriba (los <select>) ahora se puede "insertar" como
+                  texto editable en el recuadro de hallazgos, para poder
+                  agregar ahí datos que no están en ningún <select>
+                  (p. ej. "Piel: palidez generalizada", "Abdomen: Mc
+                  Burney positivo"). La plantilla nunca se guarda sola:
+                  el médico siempre debe revisarla/editarla en el
+                  textarea antes de guardar la nota. */}
+              <div className="template-warning" style={{ marginTop: 12 }}>
+                ⚠ La plantilla no confirma que estos hallazgos hayan sido evaluados. Verifique cada hallazgo antes de guardar la nota.
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                style={{ marginTop: 8 }}
+                onClick={() => {
+                  const plantilla = physicalExamToMultilineText(note.physical_exam);
+                  setNote((n) => ({
+                    ...n,
+                    clinical_findings: n.clinical_findings ? `${plantilla}\n${n.clinical_findings}` : plantilla,
+                  }));
+                }}
+              >
+                Insertar plantilla — verificar y editar antes de guardar
+              </button>
+
               <label style={{ marginTop: 12, display: "block" }}>
-                Hallazgos adicionales
+                Hallazgos del examen físico por sistemas
                 <textarea
-                  rows={2}
+                  rows={6}
                   value={note.clinical_findings}
                   onChange={set("clinical_findings")}
-                  placeholder="Cualquier hallazgo que no esté cubierto arriba…"
+                  placeholder="Hallazgos del examen físico por sistemas (o usa la plantilla de arriba; revísala antes de guardar)…"
                 />
               </label>
             </div>
