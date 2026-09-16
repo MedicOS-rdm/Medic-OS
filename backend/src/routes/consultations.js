@@ -78,6 +78,7 @@ consultationsRouter.post("/consultations", requireRole("medico"), async (req, re
     heart_rate,
     respiratory_rate,
     temperature_c,
+    oxygen_saturation,
     weight_kg,
     height_cm,
     physical_exam,
@@ -205,14 +206,14 @@ consultationsRouter.post("/consultations", requireRole("medico"), async (req, re
         `INSERT INTO consultations
           (clinic_id, patient_id, appointment_id,
            chief_complaint, present_illness, relevant_history, subjective,
-           blood_pressure, heart_rate, respiratory_rate, temperature_c, weight_kg, height_cm, bmi,
+           blood_pressure, heart_rate, respiratory_rate, temperature_c, oxygen_saturation, weight_kg, height_cm, bmi,
            physical_exam_json, clinical_findings,
            family_history_conditions_json, family_history_notes,
            review_of_systems_affected_json, review_of_systems_notes,
            diagnosis_code, diagnosis_label, diagnosis_certainty, clinical_assessment, additional_diagnoses_json,
            treatment_meds_json, non_pharmacological_treatment, studies_lab_json, studies_imaging_json,
            patient_education, warning_signs, follow_up_interval, follow_up_date, plan)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         req.user.clinic_id,
@@ -226,6 +227,7 @@ consultationsRouter.post("/consultations", requireRole("medico"), async (req, re
         heart_rate ?? null,
         respiratory_rate ?? null,
         temperature_c ?? null,
+        oxygen_saturation ?? null,
         weight_kg ?? null,
         height_cm ?? null,
         bmi,
@@ -252,6 +254,35 @@ consultationsRouter.post("/consultations", requireRole("medico"), async (req, re
       );
 
     await logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "consultation", entityId: result.lastInsertRowid, tx });
+
+    // Corrección solicitada por el usuario: los signos vitales ingresados
+    // "por la enfermera o por el mismo doctor" quedan disponibles en la
+    // nota de evolución. La nota se prellena desde patients.last_*, así
+    // que cuando es el propio médico quien los registra dentro de la
+    // nota, también los guardamos como últimos signos vitales del
+    // paciente — igual que hace el intake de la enfermera.
+    if (blood_pressure || heart_rate || temperature_c || respiratory_rate || oxygen_saturation || weight_kg || height_cm) {
+      await tx
+        .prepare(
+          `UPDATE patients SET
+            last_blood_pressure = ?, last_heart_rate = ?, last_temperature_c = ?,
+            last_respiratory_rate = ?, last_oxygen_saturation = ?, last_weight_kg = ?, last_height_cm = ?,
+            vitals_recorded_by = ?, vitals_recorded_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+           WHERE id = ? AND clinic_id = ?`
+        )
+        .run(
+          blood_pressure ?? null,
+          heart_rate ?? null,
+          temperature_c ?? null,
+          respiratory_rate ?? null,
+          oxygen_saturation ?? null,
+          weight_kg ?? null,
+          height_cm ?? null,
+          req.user.username,
+          patient_id,
+          req.user.clinic_id
+        );
+    }
 
     if (appointment_id) {
       await tx
@@ -360,6 +391,7 @@ consultationsRouter.put("/consultations/:id", requireRole("medico"), async (req,
     heart_rate,
     respiratory_rate,
     temperature_c,
+    oxygen_saturation,
     weight_kg,
     height_cm,
     physical_exam,
@@ -411,7 +443,7 @@ consultationsRouter.put("/consultations/:id", requireRole("medico"), async (req,
         `INSERT INTO consultations
           (clinic_id, patient_id, appointment_id,
            chief_complaint, present_illness, relevant_history, subjective,
-           blood_pressure, heart_rate, respiratory_rate, temperature_c, weight_kg, height_cm, bmi,
+           blood_pressure, heart_rate, respiratory_rate, temperature_c, oxygen_saturation, weight_kg, height_cm, bmi,
            physical_exam_json, clinical_findings,
            family_history_conditions_json, family_history_notes,
            review_of_systems_affected_json, review_of_systems_notes,
@@ -419,7 +451,7 @@ consultationsRouter.put("/consultations/:id", requireRole("medico"), async (req,
            treatment_meds_json, non_pharmacological_treatment, studies_lab_json, studies_imaging_json,
            patient_education, warning_signs, follow_up_interval, follow_up_date, plan,
            corrected_from_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         existing.clinic_id,
@@ -433,6 +465,7 @@ consultationsRouter.put("/consultations/:id", requireRole("medico"), async (req,
         heart_rate ?? null,
         respiratory_rate ?? null,
         temperature_c ?? null,
+        oxygen_saturation ?? null,
         weight_kg ?? null,
         height_cm ?? null,
         bmi,

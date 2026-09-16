@@ -642,6 +642,9 @@ export async function initDb() {
   // diagnóstico como "presuntivo" o "definitivo" — antes no existía esa
   // distinción.
   await ensureColumn("consultations", "respiratory_rate", "INTEGER");
+  // Corrección solicitada por el usuario: faltaba SaO2 (saturación de
+  // oxígeno) entre los signos vitales.
+  await ensureColumn("consultations", "oxygen_saturation", "INTEGER");
   await ensureColumn("consultations", "family_history_conditions_json", "TEXT"); // JSON: string[]
   await ensureColumn("consultations", "family_history_notes", "TEXT");
   await ensureColumn("consultations", "review_of_systems_affected_json", "TEXT"); // JSON: string[]
@@ -675,6 +678,7 @@ export async function initDb() {
   );
 
   await addCheckConstraintNotValid("consultations", "consultations_height_check", "height_cm BETWEEN 15 AND 250");
+  await addCheckConstraintNotValid("consultations", "consultations_oxygen_saturation_check", "oxygen_saturation BETWEEN 50 AND 100");
 
   // Nuevo rol "enfermera": el médico ahora puede dar de alta UNA cuenta
   // de asistente que sea secretaria O enfermera (antes el CHECK de la
@@ -701,6 +705,7 @@ export async function initDb() {
   await ensureColumn("patients", "last_heart_rate", "INTEGER");
   await ensureColumn("patients", "last_temperature_c", "REAL");
   await ensureColumn("patients", "last_respiratory_rate", "INTEGER");
+  await ensureColumn("patients", "last_oxygen_saturation", "INTEGER");
   await ensureColumn("patients", "last_weight_kg", "REAL");
   await ensureColumn("patients", "last_height_cm", "REAL");
   await ensureColumn("patients", "vitals_recorded_at", "TEXT");
@@ -724,6 +729,7 @@ export async function initDb() {
   await ensureColumn("appointments", "intake_heart_rate", "INTEGER");
   await ensureColumn("appointments", "intake_temperature_c", "REAL");
   await ensureColumn("appointments", "intake_respiratory_rate", "INTEGER");
+  await ensureColumn("appointments", "intake_oxygen_saturation", "INTEGER");
   await ensureColumn("appointments", "intake_recorded_by", "TEXT");
   await ensureColumn("appointments", "intake_recorded_at", "TEXT");
   // Marca las citas creadas desde la página pública de reservas, para que

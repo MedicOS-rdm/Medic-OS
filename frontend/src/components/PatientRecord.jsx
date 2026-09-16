@@ -10,7 +10,7 @@ import MultiSelectChips from "./MultiSelectChips.jsx";
 import PhysicalExamGrid from "./PhysicalExamGrid.jsx";
 import { formatAge } from "../utils/age.js";
 import { localISODate } from "../utils/date.js";
-import { vitalsAlerts } from "../utils/vitals.js";
+import { vitalsAlerts, numericOptions, VITAL_DEFAULTS } from "../utils/vitals.js";
 import {
   LAB_STUDIES,
   IMAGING_STUDIES,
@@ -36,12 +36,16 @@ const EMPTY_NOTE = {
   family_history_conditions: [],
   family_history_notes: "",
   // O · Objetivo
-  blood_pressure: "120/80",
-  heart_rate: "80",
-  respiratory_rate: "18",
-  temperature_c: "36.5",
-  weight_kg: "",
-  height_cm: "",
+  // Corrección solicitada por el usuario: FC, temperatura, frecuencia
+  // respiratoria, SaO2, peso y talla se ingresan con un <select> ubicado
+  // por defecto en el valor normal (antes peso/talla quedaban vacíos).
+  blood_pressure: VITAL_DEFAULTS.blood_pressure,
+  heart_rate: VITAL_DEFAULTS.heart_rate,
+  respiratory_rate: VITAL_DEFAULTS.respiratory_rate,
+  temperature_c: VITAL_DEFAULTS.temperature_c,
+  oxygen_saturation: VITAL_DEFAULTS.oxygen_saturation,
+  weight_kg: VITAL_DEFAULTS.weight_kg,
+  height_cm: VITAL_DEFAULTS.height_cm,
   physical_exam: defaultPhysicalExam(),
   clinical_findings: "",
   // Bloque 5 del Formulario 002: revisión actual de órganos y sistemas
@@ -80,6 +84,7 @@ function prefillVitalsFromPatient(note, patient) {
     heart_rate: patient.last_heart_rate != null ? String(patient.last_heart_rate) : note.heart_rate,
     respiratory_rate: patient.last_respiratory_rate != null ? String(patient.last_respiratory_rate) : note.respiratory_rate,
     temperature_c: patient.last_temperature_c != null ? String(patient.last_temperature_c) : note.temperature_c,
+    oxygen_saturation: patient.last_oxygen_saturation != null ? String(patient.last_oxygen_saturation) : note.oxygen_saturation,
     weight_kg: patient.last_weight_kg != null ? String(patient.last_weight_kg) : note.weight_kg,
     height_cm: patient.last_height_cm != null ? String(patient.last_height_cm) : note.height_cm,
   };
@@ -91,22 +96,6 @@ function computeBmi(weight, height) {
   if (!w || !h) return null;
   const m = h / 100;
   return Math.round((w / (m * m)) * 10) / 10;
-}
-
-// Genera las opciones numéricas de un <select> de signos vitales. Si el
-// valor actual (por ejemplo de una nota vieja) no cae exactamente en la
-// lista generada, lo agregamos igual para no perder ese dato al editar.
-function numericOptions(min, max, step, currentValue) {
-  const opts = [];
-  for (let v = min; v <= max + 1e-9; v += step) {
-    opts.push(Math.round(v * 100) / 100);
-  }
-  const cur = currentValue !== "" && currentValue !== null && currentValue !== undefined ? Number(currentValue) : null;
-  if (cur !== null && !Number.isNaN(cur) && !opts.some((o) => Math.abs(o - cur) < 1e-6)) {
-    opts.push(cur);
-    opts.sort((a, b) => a - b);
-  }
-  return opts;
 }
 
 function formatDateTime(iso) {
@@ -228,6 +217,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
       heart_rate: c.heart_rate ?? "",
       respiratory_rate: c.respiratory_rate ?? "",
       temperature_c: c.temperature_c ?? "",
+      oxygen_saturation: c.oxygen_saturation ?? "",
       weight_kg: c.weight_kg ?? "",
       height_cm: c.height_cm ?? "",
       physical_exam: c.physical_exam || defaultPhysicalExam(),
@@ -329,6 +319,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
       heart_rate: note.heart_rate ? Number(note.heart_rate) : null,
       respiratory_rate: note.respiratory_rate ? Number(note.respiratory_rate) : null,
       temperature_c: note.temperature_c ? Number(note.temperature_c) : null,
+      oxygen_saturation: note.oxygen_saturation ? Number(note.oxygen_saturation) : null,
       weight_kg: note.weight_kg ? Number(note.weight_kg) : null,
       height_cm: note.height_cm ? Number(note.height_cm) : null,
       physical_exam: note.physical_exam || null,
@@ -564,6 +555,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                             c.blood_pressure && `PA ${c.blood_pressure}`,
                             c.heart_rate && `FC ${c.heart_rate} lpm`,
                             c.temperature_c && `T ${c.temperature_c}°C`,
+                            c.oxygen_saturation && `SaO2 ${c.oxygen_saturation}%`,
                             c.bmi && `IMC ${c.bmi}`,
                           ]
                             .filter(Boolean)
@@ -849,6 +841,22 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                     ))}
                   </select>
                   {vitalAlerts.respiratory_rate && <span className="form-alert">⚠ {vitalAlerts.respiratory_rate}</span>}
+                </label>
+                <label>
+                  SaO2 (%)
+                  <select
+                    value={note.oxygen_saturation}
+                    onChange={set("oxygen_saturation")}
+                    className={vitalAlerts.oxygen_saturation ? "input-alert" : ""}
+                  >
+                    <option value="">Seleccionar…</option>
+                    {numericOptions(70, 100, 1, note.oxygen_saturation).map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  {vitalAlerts.oxygen_saturation && <span className="form-alert">⚠ {vitalAlerts.oxygen_saturation}</span>}
                 </label>
                 <label>
                   Peso (kg)

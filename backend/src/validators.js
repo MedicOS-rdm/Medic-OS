@@ -36,6 +36,9 @@ export const VITAL_RANGES = {
   // (bloque 6) — antes no se registraba en absoluto.
   respiratory_rate: { min: 5, max: 100, label: "la frecuencia respiratoria (rpm)" },
   temperature_c: { min: 25, max: 45, label: "la temperatura (°C)" },
+  // Corrección solicitada por el usuario: faltaba SaO2 (saturación de
+  // oxígeno) entre los signos vitales.
+  oxygen_saturation: { min: 50, max: 100, label: "la saturación de oxígeno (%)" },
   weight_kg: { min: 0.3, max: 400, label: "el peso (kg)" },
   height_cm: { min: 15, max: 250, label: "la talla (cm)" },
 };
@@ -69,7 +72,7 @@ export function computeBmi(weight_kg, height_cm) {
 // umbrales generales de adulto — no ajustan por edad pediátrica ni
 // condición previa del paciente; son una alerta visual de apoyo, nunca un
 // diagnóstico ni un sustituto del criterio clínico del médico.
-export function vitalsAlerts({ blood_pressure, heart_rate, temperature_c, respiratory_rate } = {}) {
+export function vitalsAlerts({ blood_pressure, heart_rate, temperature_c, respiratory_rate, oxygen_saturation } = {}) {
   const alerts = [];
   if (heart_rate !== undefined && heart_rate !== null && heart_rate !== "") {
     const hr = Number(heart_rate);
@@ -81,6 +84,12 @@ export function vitalsAlerts({ blood_pressure, heart_rate, temperature_c, respir
     const rr = Number(respiratory_rate);
     if (!Number.isNaN(rr) && (rr < 12 || rr > 20)) {
       alerts.push({ field: "respiratory_rate", message: rr < 12 ? "Frecuencia respiratoria baja (bradipnea)" : "Frecuencia respiratoria alta (taquipnea)" });
+    }
+  }
+  if (oxygen_saturation !== undefined && oxygen_saturation !== null && oxygen_saturation !== "") {
+    const spo2 = Number(oxygen_saturation);
+    if (!Number.isNaN(spo2) && spo2 < 95) {
+      alerts.push({ field: "oxygen_saturation", message: "Saturación de oxígeno baja (hipoxemia)" });
     }
   }
   if (temperature_c !== undefined && temperature_c !== null && temperature_c !== "") {

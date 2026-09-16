@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatAge } from "../utils/age.js";
-import { vitalsAlerts } from "../utils/vitals.js";
+import { vitalsAlerts, numericOptions, VITAL_DEFAULTS } from "../utils/vitals.js";
 
 const EMPTY = {
   first_name: "",
@@ -20,12 +20,16 @@ const EMPTY = {
   workplace: "",
   job_title: "",
   clinical_history_number: "",
-  blood_pressure: "",
-  heart_rate: "",
-  temperature_c: "",
-  respiratory_rate: "",
-  weight_kg: "",
-  height_cm: "",
+  // Corrección solicitada por el usuario: FC, temperatura, frecuencia
+  // respiratoria, SaO2, peso y talla se ingresan con un <select> ubicado
+  // por defecto en el valor normal.
+  blood_pressure: VITAL_DEFAULTS.blood_pressure,
+  heart_rate: VITAL_DEFAULTS.heart_rate,
+  temperature_c: VITAL_DEFAULTS.temperature_c,
+  respiratory_rate: VITAL_DEFAULTS.respiratory_rate,
+  oxygen_saturation: VITAL_DEFAULTS.oxygen_saturation,
+  weight_kg: VITAL_DEFAULTS.weight_kg,
+  height_cm: VITAL_DEFAULTS.height_cm,
 };
 
 // patient: si se pasa, el modal edita ese paciente en vez de crear uno nuevo.
@@ -41,12 +45,13 @@ export default function PatientModal({ isMedico = true, canEditClinical = isMedi
       ? {
           ...EMPTY,
           ...patient,
-          blood_pressure: patient.last_blood_pressure || "",
-          heart_rate: patient.last_heart_rate || "",
-          temperature_c: patient.last_temperature_c || "",
-          respiratory_rate: patient.last_respiratory_rate || "",
-          weight_kg: patient.last_weight_kg || "",
-          height_cm: patient.last_height_cm || "",
+          blood_pressure: patient.last_blood_pressure || EMPTY.blood_pressure,
+          heart_rate: patient.last_heart_rate != null ? String(patient.last_heart_rate) : EMPTY.heart_rate,
+          temperature_c: patient.last_temperature_c != null ? String(patient.last_temperature_c) : EMPTY.temperature_c,
+          respiratory_rate: patient.last_respiratory_rate != null ? String(patient.last_respiratory_rate) : EMPTY.respiratory_rate,
+          oxygen_saturation: patient.last_oxygen_saturation != null ? String(patient.last_oxygen_saturation) : EMPTY.oxygen_saturation,
+          weight_kg: patient.last_weight_kg != null ? String(patient.last_weight_kg) : EMPTY.weight_kg,
+          height_cm: patient.last_height_cm != null ? String(patient.last_height_cm) : EMPTY.height_cm,
         }
       : EMPTY
   );
@@ -197,42 +202,79 @@ export default function PatientModal({ isMedico = true, canEditClinical = isMedi
                   </label>
                   <label>
                     Frecuencia cardíaca (lpm)
-                    <input
-                      type="number"
-                      value={form.heart_rate || ""}
-                      onChange={set("heart_rate")}
-                      className={alerts.heart_rate ? "input-alert" : ""}
-                    />
+                    <select value={form.heart_rate || ""} onChange={set("heart_rate")} className={alerts.heart_rate ? "input-alert" : ""}>
+                      {numericOptions(30, 220, 1, form.heart_rate).map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
                     {alerts.heart_rate && <span className="form-alert">⚠ {alerts.heart_rate}</span>}
                   </label>
                   <label>
                     Temperatura (°C)
-                    <input
-                      type="number"
-                      step="0.1"
+                    <select
                       value={form.temperature_c || ""}
                       onChange={set("temperature_c")}
                       className={alerts.temperature_c ? "input-alert" : ""}
-                    />
+                    >
+                      {numericOptions(34, 42, 0.1, form.temperature_c).map((v) => (
+                        <option key={v} value={v}>
+                          {v.toFixed(1)}
+                        </option>
+                      ))}
+                    </select>
                     {alerts.temperature_c && <span className="form-alert">⚠ {alerts.temperature_c}</span>}
                   </label>
                   <label>
                     Frecuencia respiratoria (rpm)
-                    <input
-                      type="number"
+                    <select
                       value={form.respiratory_rate || ""}
                       onChange={set("respiratory_rate")}
                       className={alerts.respiratory_rate ? "input-alert" : ""}
-                    />
+                    >
+                      {numericOptions(8, 60, 1, form.respiratory_rate).map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
                     {alerts.respiratory_rate && <span className="form-alert">⚠ {alerts.respiratory_rate}</span>}
                   </label>
                   <label>
+                    Saturación de oxígeno (%)
+                    <select
+                      value={form.oxygen_saturation || ""}
+                      onChange={set("oxygen_saturation")}
+                      className={alerts.oxygen_saturation ? "input-alert" : ""}
+                    >
+                      {numericOptions(70, 100, 1, form.oxygen_saturation).map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                    {alerts.oxygen_saturation && <span className="form-alert">⚠ {alerts.oxygen_saturation}</span>}
+                  </label>
+                  <label>
                     Peso (kg)
-                    <input type="number" step="0.1" value={form.weight_kg || ""} onChange={set("weight_kg")} />
+                    <select value={form.weight_kg || ""} onChange={set("weight_kg")}>
+                      {numericOptions(1, 150, 0.5, form.weight_kg).map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     Talla (cm)
-                    <input type="number" step="0.1" value={form.height_cm || ""} onChange={set("height_cm")} />
+                    <select value={form.height_cm || ""} onChange={set("height_cm")}>
+                      {numericOptions(30, 220, 1, form.height_cm).map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </div>
                 {patient?.vitals_recorded_at && (

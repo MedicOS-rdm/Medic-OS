@@ -186,17 +186,45 @@ appointmentsRouter.put("/:id/intake", requireRole("medico", "enfermera"), async 
   const vitalsError = validateVitals(req.body);
   if (vitalsError) return res.status(400).json({ error: vitalsError });
 
-  const { weight_kg, height_cm, blood_pressure, heart_rate, temperature_c, respiratory_rate } = req.body;
+  const { weight_kg, height_cm, blood_pressure, heart_rate, temperature_c, respiratory_rate, oxygen_saturation } = req.body;
   await withTransaction(async (tx) => {
     await tx
       .prepare(
         `UPDATE appointments SET
           intake_weight_kg = ?, intake_height_cm = ?, intake_blood_pressure = ?,
-          intake_heart_rate = ?, intake_temperature_c = ?, intake_respiratory_rate = ?,
+          intake_heart_rate = ?, intake_temperature_c = ?, intake_respiratory_rate = ?, intake_oxygen_saturation = ?,
           intake_recorded_by = ?, intake_recorded_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
          WHERE id = ?`
       )
-      .run(weight_kg ?? null, height_cm ?? null, blood_pressure ?? null, heart_rate ?? null, temperature_c ?? null, respiratory_rate ?? null, req.user.username, req.params.id);
+      .run(weight_kg ?? null, height_cm ?? null, blood_pressure ?? null, heart_rate ?? null, temperature_c ?? null, respiratory_rate ?? null, oxygen_saturation ?? null, req.user.username, req.params.id);
+
+    // Corrección solicitada por el usuario: "una vez que los datos hayan
+    // sido ingresados por la enfermera o por el mismo doctor, estos datos
+    // estarán en la nota de evolución". Antes el intake solo se guardaba
+    // en la cita (appointments.intake_*), mientras que la nota de
+    // evolución se prellena desde el paciente (patients.last_*) — así que
+    // lo que tomaba la enfermera no llegaba a la nota del médico. Ahora
+    // el intake también actualiza los últimos signos vitales del paciente.
+    await tx
+      .prepare(
+        `UPDATE patients SET
+          last_weight_kg = ?, last_height_cm = ?, last_blood_pressure = ?,
+          last_heart_rate = ?, last_temperature_c = ?, last_respiratory_rate = ?, last_oxygen_saturation = ?,
+          vitals_recorded_by = ?, vitals_recorded_at = to_char(now() AT TIME ZONE 'America/Guayaquil', 'YYYY-MM-DD HH24:MI:SS')
+         WHERE id = ? AND clinic_id = ?`
+      )
+      .run(
+        weight_kg ?? null,
+        height_cm ?? null,
+        blood_pressure ?? null,
+        heart_rate ?? null,
+        temperature_c ?? null,
+        respiratory_rate ?? null,
+        oxygen_saturation ?? null,
+        req.user.username,
+        existing.patient_id,
+        req.user.clinic_id
+      );
     await logAudit({
       clinicId: req.user.clinic_id,
       actor: req.user.username,
