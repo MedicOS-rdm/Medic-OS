@@ -44,16 +44,16 @@
   .pw-copy-btn.copied { background:#2e7d32; }
   .pw-close-btn { margin-top:16px; background:transparent; border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:8px 14px; cursor:pointer; font-weight:600; width:100%; }
 
-  /* Corrección 1 y 2 solicitadas por el usuario: barra superior fija con
-     el logo y el botón "Cerrar sesión" siempre visibles (antes no
-     existía forma de cerrar sesión, y al hacer scroll para ver la tabla
-     de consultorios el resto de la página perdía orden visual). */
-  .topbar { position: sticky; top: 0; z-index: 20; background: var(--bg); display:flex; align-items:center; justify-content:space-between; gap:12px; padding: 8px 0 16px; margin-bottom: 8px; }
-  .topbar-brand { display:flex; align-items:center; gap:10px; }
-  .topbar-brand img { width:40px; height:40px; border-radius:50%; object-fit:cover; }
-  .topbar-brand span.name { font-size: 1.05rem; font-weight:700; }
+  /* Corrección 1 y 2 solicitadas por el usuario: barra superior fija,
+     con el logo y nombre grandes y centrados, y el botón "Cerrar
+     sesión" siempre visible a la derecha. */
+  .topbar { position: sticky; top: 0; z-index: 20; background: var(--bg); display:grid; grid-template-columns: 1fr auto 1fr; align-items:center; gap:12px; padding: 14px 0 20px; margin-bottom: 8px; }
+  .topbar-brand { grid-column: 2; display:flex; align-items:center; gap:14px; }
+  .topbar-brand img { width:56px; height:56px; border-radius:50%; object-fit:cover; }
+  .topbar-brand span.name { font-size: 1.5rem; font-weight:700; }
   .topbar-brand .medic { color: var(--ink); }
   .topbar-brand .os { color: var(--accent); }
+  .topbar-actions { grid-column: 3; justify-self: end; }
   button.logout-btn { margin-top:0; background: transparent; color: var(--danger); border: 1px solid var(--line); }
 
   /* Corrección 3 solicitada por el usuario: mostrar/ocultar la clave de
@@ -61,6 +61,29 @@
   .pw-field { position:relative; flex:1; }
   .pw-field input { width:100%; padding-right: 40px; }
   .pw-toggle { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:transparent; border:none; margin:0; padding:4px 6px; color: var(--ink-soft); font-size:0.75rem; font-weight:600; cursor:pointer; }
+
+  /* Corrección solicitada por el usuario: tabla de consultorios más
+     compacta y profesional, sin necesidad de scroll horizontal. En vez
+     de una columna por dato, se agrupan en celdas más ricas (nombre +
+     usuario + fecha; usuarios + pacientes) y las dos acciones quedan en
+     un menú "⋮" en vez de dos botones de texto. */
+  .clinics-table { width:100%; min-width: 0; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; table-layout: fixed; }
+  .clinics-table th, .clinics-table td { text-align:left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .clinics-table th { color: var(--ink-soft); font-weight:600; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.02em; }
+  .clinics-table td .primary { font-weight:600; }
+  .clinics-table td .secondary { color: var(--ink-soft); font-size:0.78rem; margin-top:2px; }
+  .clinics-table td.col-assist { width: 92px; }
+  .clinics-table td.col-actions { width: 40px; position: relative; }
+  .assist-row { display:flex; align-items:center; gap:6px; }
+  .assist-row input { width: 44px; padding: 6px; text-align:center; }
+  .assist-row button { margin-top:0; padding: 6px 8px; font-size: 0.75rem; }
+  .kebab-btn { background:transparent; border:1px solid var(--line); color:var(--ink); width:32px; height:32px; padding:0; border-radius:7px; margin-top:0; font-weight:700; }
+  .kebab-menu { display:none; position:absolute; right:0; top:36px; background:var(--surface); border:1px solid var(--line); border-radius:8px; box-shadow: 0 6px 18px rgba(20,38,66,0.15); min-width:170px; z-index: 10; }
+  .kebab-menu.open { display:block; }
+  .kebab-menu button { display:block; width:100%; text-align:left; background:transparent; border:none; color:var(--ink); padding:10px 12px; margin:0; border-radius:0; font-weight:500; font-size:0.85rem; }
+  .kebab-menu button:hover { background: var(--accent-soft); }
+  .kebab-menu button.danger { color: var(--danger); }
+  .archived-tag { color:var(--danger); font-size:0.72rem; }
 </style>
 </head>
 <body>
@@ -139,17 +162,14 @@
 
     <div class="card">
       <strong>Consultorios existentes</strong>
-      <!-- Corrección solicitada por el usuario: la tabla tiene más
-           columnas (incluidos los botones de acción) de las que caben en
-           el ancho de la tarjeta, y antes se desbordaba visualmente fuera
-           del recuadro. Ahora, si no cabe, aparece un scroll horizontal
-           propio DENTRO de la tarjeta en vez de romper el diseño. -->
-      <div style="overflow-x: auto;">
-        <table id="clinicsTable">
-          <thead><tr><th>Nombre</th><th>Usuario</th><th>Médico</th><th>Usuarios</th><th>Pacientes</th><th>Asistentes permitidos</th><th>Creado</th><th colspan="2"></th></tr></thead>
-          <tbody id="clinicsBody"></tbody>
-        </table>
-      </div>
+      <!-- Corrección solicitada por el usuario: tabla más compacta y
+           profesional, sin scroll horizontal — se agrupan datos por
+           celda y las acciones quedan en un menú "⋮". -->
+      <table class="clinics-table" id="clinicsTable">
+        <thead><tr><th>Consultorio</th><th>Médico</th><th>Usuarios / pacientes</th><th>Asistentes</th><th></th></tr></thead>
+        <tbody id="clinicsBody"></tbody>
+      </table>
+    </div>
       <!-- CORRECCIÓN 1 solicitada por el usuario: "el superadmin es quien
            decide cuántos asistentes puede agregar el médico contratante" —
            antes ese límite (1) estaba fijo en el código del backend. -->
@@ -235,29 +255,57 @@
     btn.textContent = showing ? 'Mostrar' : 'Ocultar';
   }
 
+  // Corrección solicitada por el usuario: fila compacta (nombre + usuario
+  // + fecha agrupados; usuarios/pacientes juntos; acciones en un menú
+  // "⋮" en vez de dos botones de texto) para que la tabla quepa sin
+  // scroll horizontal.
   async function loadClinics() {
     const rows = await api('/clinics');
     const body = document.getElementById('clinicsBody');
     body.innerHTML = rows.map(c => `
       <tr>
-        <td>${c.name}${c.status === 'archivado' ? ' <span style="color:var(--danger); font-size:0.75rem;">(archivada)</span>' : ''}</td>
-        <td><code>${c.doctor_username || '—'}</code></td>
+        <td>
+          <div class="primary">${c.name}${c.status === 'archivado' ? ' <span class="archived-tag">(archivada)</span>' : ''}</div>
+          <div class="secondary"><code>${c.doctor_username || '—'}</code> · creado ${new Date(c.created_at.replace(' ', 'T')).toLocaleDateString('es-MX')}</div>
+        </td>
         <td>
           <span id="drName-${c.id}">${c.doctor_full_name || '—'}</span>
-          ${c.doctor_username ? `<button class="secondary" style="margin-left:6px;" onclick="editDoctorName(${c.id}, '${(c.doctor_full_name || '').replace(/'/g, "\\'")}')">Editar</button>` : ''}
+          ${c.doctor_username ? `<button class="secondary" style="margin-left:4px; margin-top:4px; padding:4px 8px; font-size:0.72rem;" onclick="editDoctorName(${c.id}, '${(c.doctor_full_name || '').replace(/'/g, "\\'")}')">Editar</button>` : ''}
         </td>
-        <td>${c.user_count}</td>
-        <td>${c.patient_count}</td>
         <td>
-          <input type="number" min="0" max="20" value="${c.max_assistants}" id="maxAssist-${c.id}" style="width:56px;" />
-          <button class="secondary" style="margin-left:4px;" onclick="saveMaxAssistants(${c.id})">Guardar</button>
+          <div>${c.user_count} usuarios</div>
+          <div class="secondary">${c.patient_count} pacientes</div>
         </td>
-        <td>${new Date(c.created_at.replace(' ', 'T')).toLocaleDateString('es-MX')}</td>
-        <td><button class="secondary" onclick="resetPassword(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Restablecer contraseña</button></td>
-        <td>${c.status === 'archivado' ? '—' : `<button class="danger" onclick="deleteClinic(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Archivar</button>`}</td>
+        <td class="col-assist">
+          <div class="assist-row">
+            <input type="number" min="0" max="20" value="${c.max_assistants}" id="maxAssist-${c.id}" />
+            <button class="secondary" onclick="saveMaxAssistants(${c.id})">Guardar</button>
+          </div>
+        </td>
+        <td class="col-actions">
+          <button type="button" class="kebab-btn" onclick="toggleKebab(${c.id})">⋮</button>
+          <div class="kebab-menu" id="kebab-${c.id}">
+            <button type="button" onclick="closeKebabs(); resetPassword(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Restablecer contraseña</button>
+            ${c.status === 'archivado' ? '' : `<button type="button" class="danger" onclick="closeKebabs(); deleteClinic(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Archivar</button>`}
+          </div>
+        </td>
       </tr>
-    `).join('') || '<tr><td colspan="9">Todavía no hay consultorios.</td></tr>';
+    `).join('') || '<tr><td colspan="5">Todavía no hay consultorios.</td></tr>';
   }
+
+  // Solo un menú "⋮" abierto a la vez, y se cierra al hacer clic afuera.
+  function closeKebabs() {
+    document.querySelectorAll('.kebab-menu.open').forEach(m => m.classList.remove('open'));
+  }
+  function toggleKebab(id) {
+    const menu = document.getElementById('kebab-' + id);
+    const wasOpen = menu.classList.contains('open');
+    closeKebabs();
+    if (!wasOpen) menu.classList.add('open');
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.col-actions')) closeKebabs();
+  });
 
   // El nombre del médico solo se puede corregir DESDE AQUÍ — el propio
   // médico no puede cambiarlo desde "Perfil del médico" en la app (a

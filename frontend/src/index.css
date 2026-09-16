@@ -37,13 +37,15 @@ textarea {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  /* Corrección solicitada por el usuario: panel izquierdo (marca +
+     botones administrativos + usuario) y panel derecho nuevo (lista de
+     pacientes), en vez de un único panel izquierdo apretado con todo. */
+  grid-template-columns: 240px minmax(0, 1fr) 280px;
   min-height: 100vh;
 }
 
 .sidebar {
   background: var(--surface);
-  border-right: 1px solid var(--line);
   padding: 24px 20px;
   display: flex;
   flex-direction: column;
@@ -60,6 +62,30 @@ textarea {
   top: 0;
   height: 100vh;
   overflow-y: auto;
+}
+
+.sidebar-left {
+  border-right: 1px solid var(--line);
+}
+
+.sidebar-right {
+  border-left: 1px solid var(--line);
+}
+
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Corrección solicitada por el usuario: al abrir una sección (Mi
+   Equipo, Perfil del médico, etc.) su botón se resalta en celeste —
+   el color de la plataforma — para saber cuál está en uso. */
+.admin-nav-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-dark);
+  font-weight: 600;
 }
 
 .brand {
@@ -652,17 +678,18 @@ textarea {
   cursor: pointer;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 960px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
   .sidebar {
     border-right: none;
+    border-left: none;
     border-bottom: 1px solid var(--line);
-    /* En una sola columna (sidebar arriba, contenido abajo) no tiene
-       sentido fijar el sidebar a la altura de la pantalla — eso lo
-       recortaría. El fix de scroll independiente es solo para el layout
-       de escritorio de dos columnas. */
+    /* En una sola columna (paneles apilados) no tiene sentido fijar el
+       sidebar a la altura de la pantalla — eso lo recortaría. El fix de
+       scroll independiente es solo para el layout de escritorio de
+       varias columnas. */
     position: static;
     height: auto;
     overflow-y: visible;

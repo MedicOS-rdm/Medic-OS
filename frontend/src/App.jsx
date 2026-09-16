@@ -162,7 +162,12 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      {/* Corrección solicitada por el usuario: antes este panel izquierdo
+          tenía que alojar la lista de pacientes Y los botones
+          administrativos, y quedaba corto. Ahora el panel izquierdo es
+          solo marca + botones administrativos + usuario, y la lista de
+          pacientes se movió a un panel nuevo a la derecha. */}
+      <aside className="sidebar sidebar-left">
         <div className="brand">
           <div className="brand-clinic">
             <img src={clinicLogo || "/assets/logo.png"} alt={user.clinic_name || "Consultorio"} className="brand-mark" />
@@ -177,56 +182,45 @@ export default function App() {
           </div>
         </div>
 
-        <button className="btn-primary full" onClick={() => setShowPatientModal(true)}>
-          + Nuevo paciente
-        </button>
-
-        <input
-          className="search-input"
-          placeholder="Buscar paciente…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-
-        <ul className="patient-list">
-          {filteredPatients.map((p) => (
-            <li
-              key={p.id}
-              className={isMedico || isEnfermera ? "clickable" : ""}
-              onClick={() => {
-                if (isMedico) setRecord({ patientId: p.id, appointmentId: null });
-                else if (isEnfermera) setEditingPatient(p);
-              }}
+        {isMedico && (
+          <nav className="admin-nav">
+            {/* Corrección solicitada por el usuario: el botón de la
+                sección abierta se resalta en celeste (el color de la
+                plataforma) para saber cuál se está usando. */}
+            <button
+              className={`btn-ghost full admin-nav-btn${showDoctorProfile ? " active" : ""}`}
+              onClick={() => setShowDoctorProfile(true)}
             >
-              <span>
-                {p.first_name} {p.last_name}
-              </span>
-              {p.allergies && <span className="allergy-dot" title={`Alergia: ${p.allergies}`} />}
-            </li>
-          ))}
-          {filteredPatients.length === 0 && <li className="hint">Sin resultados.</li>}
-        </ul>
+              Perfil del médico
+            </button>
+            <button
+              className={`btn-ghost full admin-nav-btn${showUsers ? " active" : ""}`}
+              onClick={() => setShowUsers(true)}
+            >
+              Mi Equipo
+            </button>
+            <button
+              className={`btn-ghost full admin-nav-btn${showBookingSettings ? " active" : ""}`}
+              onClick={() => setShowBookingSettings(true)}
+            >
+              Reserva en línea
+            </button>
+            <button
+              className={`btn-ghost full admin-nav-btn${showReminders ? " active" : ""}`}
+              onClick={() => setShowReminders(true)}
+            >
+              Recordatorios
+            </button>
+            <button
+              className={`btn-ghost full admin-nav-btn${showNotificationSettings ? " active" : ""}`}
+              onClick={() => setShowNotificationSettings(true)}
+            >
+              Envío automático
+            </button>
+          </nav>
+        )}
 
         <div className="sidebar-footer">
-          {isMedico && (
-            <>
-              <button className="btn-ghost full" onClick={() => setShowDoctorProfile(true)}>
-                Perfil del médico
-              </button>
-              <button className="btn-ghost full" onClick={() => setShowUsers(true)}>
-                Mi Equipo
-              </button>
-              <button className="btn-ghost full" onClick={() => setShowBookingSettings(true)}>
-                Reserva en línea
-              </button>
-              <button className="btn-ghost full" onClick={() => setShowReminders(true)}>
-                Recordatorios
-              </button>
-              <button className="btn-ghost full" onClick={() => setShowNotificationSettings(true)}>
-                Envío automático
-              </button>
-            </>
-          )}
           <div className="user-badge">
             <div>
               <strong>{user.full_name}</strong>
@@ -291,6 +285,42 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* Corrección solicitada por el usuario: panel nuevo a la derecha
+          para la lista de pacientes (antes vivía apretada en el panel
+          izquierdo junto con los botones administrativos). */}
+      <aside className="sidebar sidebar-right">
+        <button className="btn-primary full" onClick={() => setShowPatientModal(true)}>
+          + Nuevo paciente
+        </button>
+
+        <input
+          className="search-input"
+          placeholder="Buscar paciente…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        <ul className="patient-list">
+          {filteredPatients.map((p) => (
+            <li
+              key={p.id}
+              className={isMedico || isEnfermera ? "clickable" : ""}
+              onClick={() => {
+                if (isMedico) setRecord({ patientId: p.id, appointmentId: null });
+                else if (isEnfermera) setEditingPatient(p);
+              }}
+            >
+              <span>
+                {p.first_name} {p.last_name}
+              </span>
+              {p.allergies && <span className="allergy-dot" title={`Alergia: ${p.allergies}`} />}
+            </li>
+          ))}
+          {filteredPatients.length === 0 && <li className="hint">Sin resultados.</li>}
+        </ul>
+      </aside>
+
 
       {showPatientModal && (
         <PatientModal
